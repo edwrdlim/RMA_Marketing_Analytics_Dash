@@ -1,6 +1,6 @@
 # Marketing Analytics Dashboard
 
-A set of interactive Jupyter notebooks and a marketing analytics dashboard designed to showcase the retail demand forecasting and promotion effectiveness analysis across 44 SKUs over 100 weeks of sales data.
+A set of interactive Jupyter notebooks and HTML dashboards for retail demand forecasting, promotion effectiveness analysis, and price elasticity modelling across 44 SKUs over 100 weeks of sales data.
 
 ---
 
@@ -18,13 +18,13 @@ A set of interactive Jupyter notebooks and a marketing analytics dashboard desig
 pip install pandas numpy plotly scikit-learn statsmodels ipywidgets
 ```
 
-1. (JupyterLab only) Enable the widgets extension:
+3. (JupyterLab only) Enable the widgets extension:
 
 ```bash
 pip install jupyterlab-widgets
 ```
 
-## Running the Dashboards
+## Running the Notebooks
 
 1. Open a terminal in the project folder and start Jupyter:
 
@@ -32,10 +32,21 @@ pip install jupyterlab-widgets
 jupyter notebook
 ```
 
-1. Open either notebook and run all cells top-to-bottom (**Cell → Run All**).
-2. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
+2. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
+3. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
 
-> Both `data_raw.csv` and `data_processed.csv` must be in the same folder as the notebooks.
+## Regenerating the HTML Dashboards
+
+The `scripts/` folder contains Python generators that produce self-contained HTML dashboards. Run them from the `scripts/` directory:
+
+```bash
+cd scripts
+python generate_marketing_analytics_dashboard.py   # → dashboards/marketing_analytics_dashboard.html
+python generate_demand_dashboard.py                 # → dashboards/demand_forecasting_dashboard.html
+python generate_price_elasticity_dashboard.py       # → dashboards/price_elasticity_dashboard.html
+```
+
+Then open the HTML files in `dashboards/` directly in a browser — no Python backend required.
 
 ---
 
@@ -43,28 +54,46 @@ jupyter notebook
 
 ```
 ├── README.md
-├── data_raw.csv                    # Raw weekly sales (4,400 rows: 44 SKUs × 100 weeks)
-├── data_processed.csv              # Feature-engineered dataset (lagged prices, trend, dummies)
-├── demand_forecasting.ipynb        # Module 1 — Demand forecasting
-└── promotion_effectiveness.ipynb   # Module 2 — Promotion effectiveness
+├── Imperial Fonts/                                # Custom Imperial Sans Display typeface
+│   ├── ImperialSansDisplay-Regular.woff2
+│   ├── ImperialSansDisplay-Medium.woff2
+│   └── ... (.ttf versions of each)
+├── data/
+│   ├── data_raw.csv                               # Raw weekly sales (4,400 rows: 44 SKUs × 100 weeks)
+│   └── data_processed.csv                         # Feature-engineered dataset (lagged prices, trend, dummies)
+├── notebooks/
+│   ├── demand_forecasting.ipynb                   # Module 1 — Demand forecasting (interactive)
+│   ├── promotion_effectiveness.ipynb              # Module 2 — Promotion effectiveness (interactive)
+│   └── price_elasticity.ipynb                     # Module 3 — Price elasticity (interactive)
+├── scripts/
+│   ├── generate_marketing_analytics_dashboard.py  # Generates the combined 4-tab HTML dashboard
+│   ├── generate_demand_dashboard.py               # Generates standalone demand forecasting HTML
+│   └── generate_price_elasticity_dashboard.py     # Generates standalone price elasticity HTML
+└── dashboards/
+    ├── marketing_analytics_dashboard.html         # Combined dashboard (Interpretation Guide + 3 tabs)
+    ├── demand_forecasting_dashboard.html           # Standalone demand forecasting dashboard
+    └── price_elasticity_dashboard.html             # Standalone price elasticity dashboard
 ```
+
+---
 
 ## Data Description
 
-
-| File                 | Rows  | Description                                                                                                          |
-| -------------------- | ----- | -------------------------------------------------------------------------------------------------------------------- |
-| `data_raw.csv`       | 4,400 | Weekly sales by SKU with price, promo flag, color, vendor, and product category                                      |
-| `data_processed.csv` | 4,312 | Enriched version with lagged prices (`price-1`, `price-2`), `trend`, month dummies, and one-hot encoded categoricals |
-
+| File | Rows | Description |
+| --- | --- | --- |
+| `data/data_raw.csv` | 4,400 | Weekly sales by SKU with price, promo flag, color, vendor, and product category |
+| `data/data_processed.csv` | 4,312 | Enriched version with lagged prices (`price-1`, `price-2`), `trend`, month dummies, and one-hot encoded categoricals |
 
 **Key columns in `data_raw.csv`:** `week`, `sku`, `weekly_sales`, `price`, `feat_main_page` (promoted yes/no), `functionality` (product category), `color`, `vendor`
 
 ---
 
-## Module 1: Demand Forecasting (`demand_forecasting.ipynb`)
+## Module 1: Demand Forecasting
 
-Interactive demand forecasting dashboard. Select any SKU, configure the forecast horizon and test set size, then click **Run forecast**.
+**Notebook:** `notebooks/demand_forecasting.ipynb`
+**Dashboard:** `dashboards/marketing_analytics_dashboard.html` → Demand Forecasting tab
+
+Interactive demand forecasting dashboard. Select any SKU, configure the forecast horizon and test set size, then click **Run Forecast**.
 
 **Models compared:**
 
@@ -78,13 +107,16 @@ Interactive demand forecasting dashboard. Select any SKU, configure the forecast
 2. Trains all three models and picks the best by lowest MAE
 3. Projects demand forward with widening 95% confidence intervals
 
-**Sections:** KPI cards → forecast chart with 95% CI → forecast detail table → model comparison bars → residual diagnostics → feature importance → all-SKU heatmap
+**Sections:** Interpretation box → KPI cards → forecast chart with 95% CI → forecast detail table → all-SKU heatmap → model comparison → residual diagnostics → feature importance
 
 ---
 
-## Module 2: Promotion Effectiveness (`promotion_effectiveness.ipynb`)
+## Module 2: Promotion Effectiveness
 
-SCAN*PRO log-log OLS model measuring how much being featured on the main page boosts sales for each SKU.
+**Notebook:** `notebooks/promotion_effectiveness.ipynb`
+**Dashboard:** `dashboards/marketing_analytics_dashboard.html` → Promotion Effectiveness tab
+
+Scan*Pro log-log OLS model measuring how much being featured on the main page boosts sales for each SKU.
 
 **Model:**
 
@@ -93,9 +125,18 @@ SCAN*PRO log-log OLS model measuring how much being featured on the main page bo
 - **β₂** → Promotion coefficient; **exp(β₂) − 1** = % sales lift when featured
 - **Incremental sales** per promoted week = baseline sales × lift
 
-**Sections:** Portfolio KPIs → lift ranking with CI → incremental sales chart → lift vs price-elasticity scatter → all-SKU results table → interactive SKU deep-dive (time series, box plot, coefficients, full regression output)
+**Sections:** Portfolio KPIs → per-SKU detail with interpretation → incremental sales lift ranking → promotion effectiveness summary table
 
-**Key results:** 15/44 SKUs significant at p < 0.05, median lift 52.5%, ~3,629 total incremental units.
+---
+
+## Module 3: Price Elasticity
+
+**Notebook:** `notebooks/price_elasticity.ipynb`
+**Dashboard:** `dashboards/marketing_analytics_dashboard.html` → Price Elasticity tab
+
+Scan*Pro log-log OLS model estimating price sensitivity per SKU.
+
+**Sections:** Per-SKU elasticity detail → demand & revenue curves → model fit → waterfall chart → scenario table → portfolio overview → elasticity ranking → revenue impact heatmap → strategy summary
 
 ---
 

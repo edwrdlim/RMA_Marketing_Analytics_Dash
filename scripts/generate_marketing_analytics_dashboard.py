@@ -30,8 +30,8 @@ MONTH_COLS = [f"month_{i}" for i in range(2, 13)]
 t0 = time.time()
 
 # ─── Load data ────────────────────────────────────────────────────────────────
-raw = pd.read_csv("data_raw.csv")
-proc = pd.read_csv("data_processed.csv")
+raw = pd.read_csv("../data/data_raw.csv")
+proc = pd.read_csv("../data/data_processed.csv")
 raw["week"] = pd.to_datetime(raw["week"])
 proc["week"] = pd.to_datetime(proc["week"])
 raw["feat_main_page"] = raw["feat_main_page"].astype(str).str.lower().eq("true").astype(int)
@@ -354,26 +354,26 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <style>
   @font-face { font-family:'Imperial Sans Display'; font-weight:200; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Extralight.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Extralight.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Extralight.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Extralight.ttf') format('truetype'); }
   @font-face { font-family:'Imperial Sans Display'; font-weight:300; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Light.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Light.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Light.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Light.ttf') format('truetype'); }
   @font-face { font-family:'Imperial Sans Display'; font-weight:400; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Regular.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Regular.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Regular.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Regular.ttf') format('truetype'); }
   @font-face { font-family:'Imperial Sans Display'; font-weight:500; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Medium.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Medium.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Medium.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Medium.ttf') format('truetype'); }
   @font-face { font-family:'Imperial Sans Display'; font-weight:600; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Semibold.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Semibold.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Semibold.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Semibold.ttf') format('truetype'); }
   @font-face { font-family:'Imperial Sans Display'; font-weight:700; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Bold.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Bold.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Bold.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Bold.ttf') format('truetype'); }
   @font-face { font-family:'Imperial Sans Display'; font-weight:800; font-style:normal;
-    src:url('Imperial Fonts/ImperialSansDisplay-Extrabold.woff2') format('woff2'),
-        url('Imperial Fonts/ImperialSansDisplay-Extrabold.ttf') format('truetype'); }
+    src:url('../Imperial Fonts/ImperialSansDisplay-Extrabold.woff2') format('woff2'),
+        url('../Imperial Fonts/ImperialSansDisplay-Extrabold.ttf') format('truetype'); }
 
   :root {
     --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0;
@@ -519,7 +519,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
 <!-- ═══════════════════════════════ TAB BAR ═══════════════════════════════ -->
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('demand')">Demand Forecasting</button>
+  <button class="tab-btn active" onclick="switchTab('guide')">Interpretation Guide</button>
+  <button class="tab-btn" onclick="switchTab('demand')">Demand Forecasting</button>
   <button class="tab-btn" onclick="switchTab('promo')">Promotion Effectiveness</button>
   <button class="tab-btn" onclick="switchTab('elasticity')">Price Elasticity</button>
 </div>
@@ -527,9 +528,58 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div class="container">
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- TAB 0: INTERPRETATION GUIDE                                           -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="tab-guide" class="tab-panel active">
+  <div class="methodology" style="margin-top:0;">
+    <h3>Welcome to the Marketing Analytics Dashboard</h3>
+    <p>This dashboard analyses 44 SKUs from a tech-gadget e-commerce retailer across 100 weeks of sales data.
+      It is organised into three analytical tabs. Here is how to navigate and interpret each one:</p>
+
+    <h3 style="margin-top:1.2rem;">1. Demand Forecasting</h3>
+    <p>Select any SKU from the dropdown to see its historical sales and predicted future demand.
+      Three machine learning models (Linear Regression, Random Forest, and Neural Network) compete to forecast sales
+      &mdash; the best-performing model is automatically highlighted.</p>
+    <ul>
+      <li><b>Interpretation box</b> &mdash; A plain-English summary tells you the expected demand, the trend direction, and the confidence range.</li>
+      <li><b>Forecast chart</b> &mdash; The shaded band around the best model&rsquo;s forecast is the 95% confidence interval: the wider it gets, the more uncertain the prediction.</li>
+      <li><b>Forecast weeks slider</b> &mdash; Adjust to look further ahead (2&ndash;12 weeks).</li>
+      <li><b>Test size slider</b> &mdash; Controls how many of the most recent weeks are held out from training and used as evaluation data. A smaller test size (4&ndash;6) gives the models more training data but fewer weeks to visually compare predictions against reality. A larger test size (12&ndash;16) provides a longer comparison window but less training data. Use this to stress-test the models &mdash; if a model scores well at test size 8 but poorly at 14, it may be overfitting. Consistent results across different test sizes build confidence in the forecast.</li>
+      <li><b>Heatmap</b> &mdash; Gives a quick portfolio-level view of predicted demand across all SKUs.</li>
+    </ul>
+
+    <h3 style="margin-top:1.2rem;">2. Promotion Effectiveness</h3>
+    <p>This tab answers: <i>&ldquo;Do feature promotions actually boost sales, and by how much?&rdquo;</i></p>
+    <ul>
+      <li><b>Portfolio KPIs</b> &mdash; Show how many SKUs have a statistically significant promotion effect.</li>
+      <li><b>Per-SKU detail</b> &mdash; Select a SKU to see its promotion coefficient (&beta;&#8322;), the estimated sales lift, and incremental units generated per promo week.</li>
+      <li><b>Lift chart</b> &mdash; Ranks all SKUs by incremental sales. Blue bars = significant positive lift; red = significant negative; grey = not significant.</li>
+      <li><b>&#9733; symbol</b> &mdash; Indicates statistical significance (p &lt; 0.05), meaning we can be confident the effect is real.</li>
+    </ul>
+
+    <h3 style="margin-top:1.2rem;">3. Price Elasticity</h3>
+    <p>This tab answers: <i>&ldquo;How sensitive is each SKU&rsquo;s demand to price changes?&rdquo;</i></p>
+    <ul>
+      <li><b>Elasticity (&epsilon;)</b> &mdash; A value of &minus;2 means a 10% price increase causes a ~20% drop in demand. Values below &minus;1 are &ldquo;elastic&rdquo; (price-sensitive); above &minus;1 are &ldquo;inelastic.&rdquo;</li>
+      <li><b>Demand &amp; Revenue curves</b> &mdash; Show the trade-off between price and volume. The &#9733; on the revenue curve marks the revenue-maximising price.</li>
+      <li><b>Scenario table</b> &mdash; Shows the exact impact of raising or lowering price by 5&ndash;30%.</li>
+      <li><b>Strategy column</b> &mdash; Recommends whether to consider raising or lowering price based on elasticity.</li>
+    </ul>
+
+    <h3 style="margin-top:1.2rem;">General Tips</h3>
+    <ul>
+      <li>Click and drag on any Plotly chart to zoom in. Double-click to reset.</li>
+      <li>Hover over data points for detailed tooltips.</li>
+      <li>Use the SKU dropdowns on each tab to switch between products.</li>
+      <li>Green numbers indicate positive outcomes; red indicates negative.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- TAB 1: DEMAND FORECASTING                                             -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<div id="tab-demand" class="tab-panel active">
+<div id="tab-demand" class="tab-panel">
 
   <div class="controls">
     <select id="demandSkuSelect"></select>
@@ -547,11 +597,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </div>
 
   <div id="demandHeader" class="sku-header"></div>
+  <div id="demandInterpBox" class="interp" style="display:none"></div>
   <div id="demandKpiRow" class="kpi-row"></div>
   <div class="chart-card"><div id="forecastChart"></div></div>
 
   <h3 class="section-title">Forecast Detail</h3>
   <div id="forecastTable"></div>
+
+  <div style="margin-top:2rem;">
+    <h3 class="section-title">All-SKU Forecast Heatmap (Random Forest)</h3>
+    <div class="chart-card"><div id="demandHeatmapChart"></div></div>
+  </div>
 
   <h3 class="section-title">Model Comparison</h3>
   <div class="chart-card"><div id="compChart"></div></div>
@@ -561,11 +617,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="grid-2">
     <div class="chart-card"><div id="residChart"></div></div>
     <div class="chart-card"><div id="featChart"></div></div>
-  </div>
-
-  <div style="margin-top:2rem;">
-    <h3 class="section-title">All-SKU Forecast Heatmap (Random Forest)</h3>
-    <div class="chart-card"><div id="demandHeatmapChart"></div></div>
   </div>
 
   <div class="methodology">
@@ -709,8 +760,8 @@ const BLUE   = "#2563EB", SLATE = "#0f172a", GREY_LG = "#cbd5e1",
 /* ═══════════════════════════════════════════════════════════════════════════
    TAB SWITCHING
    ═══════════════════════════════════════════════════════════════════════════ */
-let activeTab = "demand";
-let demandRendered = true, promoRendered = false, elastRendered = false;
+let activeTab = "guide";
+let demandRendered = false, promoRendered = false, elastRendered = false;
 
 function switchTab(tab) {
   activeTab = tab;
@@ -816,11 +867,24 @@ function renderDemand() {
   const delta   = ((avgFc-avgHist)/Math.max(avgHist,1))*100;
   const sym     = delta>=0 ? "▲" : "▼";
   const r2q     = bRes.r2>0.5 ? "Good ✓" : "Moderate";
+  const ciLo    = bRes.ci_lower.slice(0,horizon);
+  const ciHi    = bRes.ci_upper.slice(0,horizon);
+  const avgCiLo = Math.round(ciLo.reduce((a,b)=>a+b,0)/horizon);
+  const avgCiHi = Math.round(ciHi.reduce((a,b)=>a+b,0)/horizon);
+  const trendWord = delta > 5 ? "growing demand" : delta < -5 ? "declining demand" : "stable demand";
+  const trendAdv  = delta > 5 ? "an upward trend" : delta < -5 ? "a downward trend" : "a relatively flat trend";
+
+  const interpBox = document.getElementById("demandInterpBox");
+  interpBox.innerHTML = `<b>Expected demand:</b> SKU ${id} is forecast to sell approximately <b>${Math.round(avgFc)} units/week</b> over the next <b>${horizon} weeks</b> (95% CI: ${avgCiLo}–${avgCiHi} units). This represents a <b>${Math.abs(delta).toFixed(1)}% ${delta>=0?"increase":"decrease"}</b> compared to the recent 12-week average of ${Math.round(avgHist)} units/wk, suggesting <b>${trendWord}</b>. The best-performing model is <b>${best}</b> (MAE: ${bRes.mae.toFixed(1)}, R²: ${bRes.r2.toFixed(3)}).`;
+  interpBox.style.display = "block";
+
   document.getElementById("demandKpiRow").innerHTML = [
+    kpi(`Avg Forecast (${horizon}w)`, `${Math.round(avgFc)} units/wk`, `${sym} ${Math.abs(delta).toFixed(1)}% vs recent · ${trendWord}`),
+    kpi("95% CI Range", `${avgCiLo} – ${avgCiHi}`, "units/wk (best model avg)"),
+    kpi("Trend", `${sym} ${Math.abs(delta).toFixed(1)}%`, `${trendAdv} vs last 12 weeks`),
     kpi("Best Model", best.split("(")[0].trim(), "Lowest MAE on test"),
-    kpi("Test MAE", bRes.mae.toFixed(1), "units/week"),
+    kpi("Test MAE", bRes.mae.toFixed(1), "units/week error"),
     kpi("Test R²", bRes.r2.toFixed(3), r2q),
-    kpi(`Avg Forecast (${horizon}w)`, Math.round(avgFc), `${sym} ${Math.abs(delta).toFixed(1)}% vs recent`),
   ].join("");
 
   /* Forecast chart */
@@ -880,7 +944,8 @@ function renderDemand() {
     textfont:{size:11,family:"monospace"},xaxis:`x${i+1}`,yaxis:`y${i+1}`,
   }));
   Plotly.newPlot("compChart",compTraces,{
-    height:380,margin:{l:55,r:20,t:45,b:40},grid:{rows:1,columns:3,pattern:"independent"},
+    height:480,margin:{l:65,r:20,t:50,b:50},grid:{rows:1,columns:3,pattern:"independent"},
+    yaxis:{tickfont:{size:7}},yaxis2:{tickfont:{size:7}},yaxis3:{tickfont:{size:7}},
     annotations:titles.map((t,i)=>({text:`<b>${t}</b>`,x:(i+0.5)/3,y:1.08,xref:"paper",yref:"paper",showarrow:false,font:{size:12}})),
   },plotCfg);
 
@@ -1017,7 +1082,7 @@ function renderElasticity() {
     xaxis:{title:"Price scenario",tickfont:{color:GREY_MD}},
     yaxis:{title:"Δ Revenue vs baseline (£/week)",tickfont:{color:GREY_MD}},
     shapes:[{type:"line",x0:0,x1:1,y0:0,y1:0,xref:"paper",yref:"y",line:{color:GREY_LG,width:1}}],
-    plot_bgcolor:"white",paper_bgcolor:"white",height:340,margin:{t:50,b:50,l:60,r:20},
+    plot_bgcolor:"white",paper_bgcolor:"white",height:400,margin:{t:70,b:50,l:60,r:20},
   },plotCfg);
 
   /* Scenario table */
@@ -1061,9 +1126,9 @@ function renderRanking() {
     customdata:rows.map(r=>[r.elast_pval,r.avg_price,r.avg_sales,r.r2,r.elast_sig?"Yes":"No"]),
     hovertemplate:"<b>%{y}</b><br>ε = <b>%{x:.4f}</b><br>p-value: %{customdata[0]:.4f}  Sig: %{customdata[4]}<br>Avg price: £%{customdata[1]:.2f}  Avg sales: %{customdata[2]:.0f}/wk<br>R²: %{customdata[3]:.3f}<extra></extra>",
   }],{
-    height:1000,margin:{l:10,r:80,t:30,b:30},
+    height:1000,margin:{l:200,r:80,t:30,b:30},
     xaxis:{title:"Price Elasticity (ε)",zeroline:true,zerolinecolor:GREY_LG,zerolinewidth:1,tickfont:{color:GREY_MD}},
-    yaxis:{tickfont:{size:10,color:SLATE}},showlegend:false,plot_bgcolor:"white",paper_bgcolor:"white",
+    yaxis:{tickfont:{size:9,color:SLATE}},showlegend:false,plot_bgcolor:"white",paper_bgcolor:"white",
     shapes:[{type:"line",x0:-1,x1:-1,y0:0,y1:1,xref:"x",yref:"paper",line:{dash:"dash",color:GREY_MD,width:1.2}}],
     annotations:[
       {x:-1,y:1,xref:"x",yref:"paper",text:"Unit elastic ε=−1",showarrow:false,font:{color:GREY_MD,size:10},yanchor:"bottom",xanchor:"left"},
@@ -1081,7 +1146,7 @@ function renderElastHeatmap() {
     colorbar:{title:"ΔRevenue (%)",ticksuffix:"%",len:.7,tickfont:{size:10}},
     hovertemplate:"<b>%{y}</b><br>Scenario: %{x}<br>Revenue change: <b>%{z:+.1f}%</b><extra></extra>",
   }],{
-    height:1050,margin:{l:10,r:110,t:30,b:60},
+    height:1050,margin:{l:200,r:110,t:30,b:60},
     xaxis:{title:"Price Change Scenario",side:"top",tickfont:{size:11}},
     yaxis:{tickfont:{size:9},autorange:"reversed"},paper_bgcolor:"white",
   },plotCfg);
@@ -1205,9 +1270,9 @@ function renderPromoLiftChart() {
     hovertemplate:"<b>%{y}</b><br>Incremental: <b>%{x:+.1f} units/wk</b><br>β₂: %{customdata[0]:.4f}  p: %{customdata[1]:.4f}  Sig: %{customdata[5]}<br>Lift: %{customdata[2]:+.1f}%  Base sales: %{customdata[3]:.0f}/wk<br>Promo rate: %{customdata[4]:.1f}%<extra></extra>",
   }],{
     title:{text:"Incremental Sales from Feature Promotions (units/wk)",font:{size:13,color:SLATE}},
-    height:Math.max(550,rows.length*22), margin:{l:10,r:80,t:40,b:40},
+    height:Math.max(550,rows.length*22), margin:{l:200,r:80,t:40,b:40},
     xaxis:{title:"Incremental units/wk during promo",zeroline:true,zerolinecolor:GREY_LG,zerolinewidth:1,tickfont:{color:GREY_MD}},
-    yaxis:{tickfont:{size:10,color:SLATE}},showlegend:false,plot_bgcolor:"white",paper_bgcolor:"white",
+    yaxis:{tickfont:{size:9,color:SLATE}},showlegend:false,plot_bgcolor:"white",paper_bgcolor:"white",
     annotations:[
       {x:.99,y:.01,xref:"paper",yref:"paper",text:"★ = significant (p<0.05)  ·  Blue = positive & sig  ·  Red = negative & sig  ·  Grey = not significant",
        showarrow:false,font:{color:GREY_MD,size:9},bgcolor:"white",align:"right"},
@@ -1248,8 +1313,7 @@ function renderPromoSummaryTable() {
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT
    ═══════════════════════════════════════════════════════════════════════════ */
-renderDemand();
-renderDemandHeatmap();
+// Guide tab is default — demand renders on first switch
 </script>
 </body>
 </html>"""
@@ -1263,11 +1327,11 @@ html_out = html_out.replace("__TEST_MIN__", str(TEST_SIZES[0]))
 html_out = html_out.replace("__TEST_MAX__", str(TEST_SIZES[-1]))
 html_out = html_out.replace("__TEST_STEP__", str(test_step))
 
-with open("marketing_analytics_dashboard.html", "w", encoding="utf-8") as f:
+with open("../dashboards/marketing_analytics_dashboard.html", "w", encoding="utf-8") as f:
     f.write(html_out)
 
 elapsed = time.time() - t0
 print(f"\n{'═' * 60}")
-print(f"  Marketing Analytics Dashboard written → marketing_analytics_dashboard.html")
+print(f"  Marketing Analytics Dashboard written → dashboards/marketing_analytics_dashboard.html")
 print(f"  {len(html_out):,} bytes / {len(html_out) // 1024} KB  ·  {elapsed:.1f}s total")
 print(f"{'═' * 60}")

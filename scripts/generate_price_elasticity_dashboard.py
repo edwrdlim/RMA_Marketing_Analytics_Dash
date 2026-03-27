@@ -20,8 +20,8 @@ CURVE_POINTS = 300
 t0 = time.time()
 
 # ── Load data ─────────────────────────────────────────────────────────────────
-raw  = pd.read_csv("data_raw.csv")
-proc = pd.read_csv("data_processed.csv")
+raw  = pd.read_csv("../data/data_raw.csv")
+proc = pd.read_csv("../data/data_processed.csv")
 raw["week"]  = pd.to_datetime(raw["week"])
 proc["week"] = pd.to_datetime(proc["week"])
 raw["feat_main_page"] = raw["feat_main_page"].astype(str).str.lower().eq("true").astype(int)
@@ -699,7 +699,7 @@ renderStrategyTable();
 # Inject data
 html_out = HTML.replace("__DATA_PLACEHOLDER__", json.dumps(dashboard_data))
 
-with open("price_elasticity_dashboard.html", "w", encoding="utf-8") as f:
+with open("../dashboards/price_elasticity_dashboard.html", "w", encoding="utf-8") as f:
     f.write(html_out)
 
 print(f" Dashboard written → price_elasticity_dashboard.html "

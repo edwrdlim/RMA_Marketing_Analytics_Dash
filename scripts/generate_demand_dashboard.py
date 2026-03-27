@@ -22,8 +22,8 @@ MODEL_NAMES = ["Linear Regression", "Random Forest", "Neural Network (MLP)"]
 
 t0 = time.time()
 
-raw = pd.read_csv("data_raw.csv")
-proc = pd.read_csv("data_processed.csv")
+raw = pd.read_csv("../data/data_raw.csv")
+proc = pd.read_csv("../data/data_processed.csv")
 raw["week"] = pd.to_datetime(raw["week"])
 proc["week"] = pd.to_datetime(proc["week"])
 raw["feat_main_page"] = raw["feat_main_page"].astype(str).str.lower().eq("true").astype(int)
@@ -516,7 +516,7 @@ html_out = html_out.replace("__TEST_MIN__", str(TEST_SIZES[0]))
 html_out = html_out.replace("__TEST_MAX__", str(TEST_SIZES[-1]))
 html_out = html_out.replace("__TEST_STEP__", str(test_step))
 
-with open("demand_forecasting_dashboard.html", "w") as f:
+with open("../dashboards/demand_forecasting_dashboard.html", "w") as f:
     f.write(html_out)
 
-print(f"Dashboard written to demand_forecasting_dashboard.html ({len(html_out):,} bytes)")
+print(f"Dashboard written to dashboards/demand_forecasting_dashboard.html ({len(html_out):,} bytes)")
