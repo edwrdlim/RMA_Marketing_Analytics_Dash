@@ -1,10 +1,23 @@
 # Marketing Analytics Dashboard
 
-A set of interactive Jupyter notebooks and HTML dashboards for retail demand forecasting, promotion effectiveness analysis, and price elasticity modelling across 44 SKUs over 100 weeks of sales data.
+A set of interactive Jupyter notebooks and an HTML dashboard for retail demand forecasting, promotion effectiveness analysis, and price elasticity modelling across 44 SKUs over 100 weeks of sales data.
 
 ---
 
-## Prerequisites
+## Viewing the Dashboard (Quick Start)
+
+The dashboard is a **self-contained HTML file** — all data and visualisations are embedded inside it. **No Python, no server, and no installation is required.**
+
+1. Open the file `dashboards/marketing_analytics_dashboard.html` in any browser (Chrome, Safari, or Edge).
+2. The dashboard is fully interactive.
+
+> **Tip:** For best results, open the file from the project root so the Imperial custom fonts load correctly. If fonts don't load, the dashboard still works using system fallback fonts.
+
+---
+
+## Prerequisites (for notebooks and regeneration only)
+
+The following are only needed if you want to run the Jupyter notebooks or regenerate the dashboard from source data. **They are not required to view the dashboard.**
 
 - **Python 3.10+** (tested on 3.12)
 - **Jupyter Notebook** or **JupyterLab**
@@ -18,7 +31,7 @@ A set of interactive Jupyter notebooks and HTML dashboards for retail demand for
 pip install pandas numpy plotly scikit-learn statsmodels ipywidgets
 ```
 
-3. (JupyterLab only) Enable the widgets extension:
+1. (JupyterLab only) Enable the widgets extension:
 
 ```bash
 pip install jupyterlab-widgets
@@ -32,8 +45,8 @@ pip install jupyterlab-widgets
 jupyter notebook
 ```
 
-2. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
-3. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
+1. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
+2. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
 
 ## Regenerating the HTML Dashboard
 
@@ -44,7 +57,7 @@ cd scripts
 python generate_marketing_analytics_dashboard.py   # → dashboards/marketing_analytics_dashboard.html
 ```
 
-Then open `dashboards/marketing_analytics_dashboard.html` directly in a browser — no Python backend required.
+This reads the CSV data, trains all models, and produces a new `marketing_analytics_dashboard.html` with updated results.
 
 ---
 
@@ -73,10 +86,12 @@ Then open `dashboards/marketing_analytics_dashboard.html` directly in a browser 
 
 ## Data Description
 
-| File | Rows | Description |
-| --- | --- | --- |
-| `data/data_raw.csv` | 4,400 | Weekly sales by SKU with price, promo flag, color, vendor, and product category |
+
+| File                      | Rows  | Description                                                                                                          |
+| ------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------- |
+| `data/data_raw.csv`       | 4,400 | Weekly sales by SKU with price, promo flag, color, vendor, and product category                                      |
 | `data/data_processed.csv` | 4,312 | Enriched version with lagged prices (`price-1`, `price-2`), `trend`, month dummies, and one-hot encoded categoricals |
+
 
 **Key columns in `data_raw.csv`:** `week`, `sku`, `weekly_sales`, `price`, `feat_main_page` (promoted yes/no), `functionality` (product category), `color`, `vendor`
 
