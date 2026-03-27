@@ -20,12 +20,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 warnings.filterwarnings("ignore")
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-MAX_HORIZON = 12
-TEST_SIZES = list(range(4, 17, 2))
+MAX_HORIZON = 12                                    # Max forecast weeks ahead
+TEST_SIZES = list(range(4, 17, 2))                  # Temporal test-set sizes to evaluate: [4,6,8,10,12,14,16]
 MODEL_NAMES = ["Linear Regression", "Random Forest", "Neural Network (MLP)"]
-SCENARIOS = [-0.30, -0.20, -0.10, -0.05, 0.05, 0.10, 0.20, 0.30]
-CURVE_POINTS = 300
-MONTH_COLS = [f"month_{i}" for i in range(2, 13)]
+SCENARIOS = [-0.30, -0.20, -0.10, -0.05, 0.05, 0.10, 0.20, 0.30]  # Price change scenarios for elasticity
+CURVE_POINTS = 300                                  # Resolution of demand/revenue curves
+MONTH_COLS = [f"month_{i}" for i in range(2, 13)]   # Seasonal dummy column names
 
 t0 = time.time()
 
@@ -36,6 +36,7 @@ raw["week"] = pd.to_datetime(raw["week"])
 proc["week"] = pd.to_datetime(proc["week"])
 raw["feat_main_page"] = raw["feat_main_page"].astype(str).str.lower().eq("true").astype(int)
 
+# Build per-SKU metadata (category, colour, vendor, averages) from raw data
 sku_meta = raw.groupby("sku").agg(
     functionality=("functionality", "first"),
     color=("color", "first"),
@@ -52,6 +53,7 @@ sku_meta["display_name"] = sku_meta.apply(lambda r: f"{r['category']} ({r['color
 sku_meta["label"] = sku_meta.apply(lambda r: f"SKU {r['sku']} — {r['display_name']}", axis=1)
 
 def meta(sku_id):
+    """Return the metadata row for a given SKU, or None if not found."""
     row = sku_meta[sku_meta["sku"] == sku_id]
     return row.iloc[0] if len(row) > 0 else None
 
@@ -65,15 +67,23 @@ print("━" * 60)
 
 
 def get_features_target(proc, sku_id):
+    """Extract feature matrix X, target y, week timestamps, and column names for one SKU."""
     df = proc[proc["sku"] == sku_id].sort_values("week").copy()
     feature_cols = [c for c in df.columns if c not in ["week", "sku", "weekly_sales"]]
     return df[feature_cols].values, df["weekly_sales"].values, df["week"].values, feature_cols
 
 
 def train_one_config(X, y, weeks, feature_cols, test_size):
+    """Train all 3 models for one SKU with a given temporal test-set size.
+
+    Returns dict with per-model test predictions, multi-step forecasts with
+    confidence intervals, accuracy metrics, best model name, and RF feature importance.
+    Returns None if insufficient data.
+    """
     if len(X) < test_size + 10:
         return None
 
+    # Temporal train/test split — last `test_size` weeks held out
     X_train, X_test = X[:-test_size], X[-test_size:]
     y_train, y_test = y[:-test_size], y[-test_size:]
 
@@ -100,6 +110,7 @@ def train_one_config(X, y, weeks, feature_cols, test_size):
         y_pred_test = np.maximum(model.predict(Xte), 0)
         resid_std = float(np.std(y_train - y_pred_train))
 
+        # Multi-step forecast: iterate from last known row, widening CI with sqrt(step)
         last_row = X[-1].copy().reshape(1, -1)
         preds, ci_lo, ci_hi = [], [], []
         for step in range(1, MAX_HORIZON + 1):
@@ -124,6 +135,7 @@ def train_one_config(X, y, weeks, feature_cols, test_size):
             "mape": round(float(np.mean(np.abs((y_test - y_pred_test) / np.maximum(y_test, 1))) * 100), 2),
         }
 
+    # Select the best model by lowest MAE and extract RF feature importance (top 12)
     best_model = min(results, key=lambda k: results[k]["mae"])
     rf_model = models["Random Forest"]
     imp = rf_model.feature_importances_
@@ -133,6 +145,7 @@ def train_one_config(X, y, weeks, feature_cols, test_size):
     return {"results": results, "best_model": best_model, "feature_importance": feat_imp}
 
 
+# Train all models across all SKUs and test-size configurations
 demand_sku_data = {}
 heatmap_preds = {}
 total_configs = 0
@@ -167,6 +180,7 @@ for sku_id in sorted(proc["sku"].unique()):
         "by_test": by_test,
     }
 
+    # Separate lightweight RF for the all-SKU heatmap (4-week ahead)
     hm_model = RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1)
     hm_model.fit(X, y)
     hm_row = X[-1].copy().reshape(1, -1)
@@ -204,11 +218,18 @@ print("━" * 60)
 
 
 def fit_scanpro(sku_id):
+    """Fit Scan*Pro log-log OLS for one SKU.
+
+    Model: log(sales) = β₀ + β₁·log(price) + β₂·feat + β₃·trend + Σγ·month + ε
+    Returns elasticity (β₁), promotion coefficient (β₂), demand/revenue curves,
+    optimal price, and what-if scenario impacts. Returns None if insufficient data.
+    """
     df = proc[proc["sku"] == sku_id].sort_values("week").copy()
     df = df[df["weekly_sales"] > 0]
     if len(df) < 15 or df["feat_main_page"].nunique() < 2:
         return None
 
+    # Build the regression matrix: log-price, promo flag, trend, month dummies
     y = np.log(df["weekly_sales"].values)
     X = pd.DataFrame(index=df.index)
     X["log_price"] = np.log(df["price"].clip(lower=0.01))
@@ -232,18 +253,20 @@ def fit_scanpro(sku_id):
         return None
 
     m = meta(sku_id)
-    P0 = float(df["price"].mean())
-    Q0 = float(df["weekly_sales"].mean())
-    R0 = P0 * Q0
+    P0 = float(df["price"].mean())    # Baseline price
+    Q0 = float(df["weekly_sales"].mean())  # Baseline demand
+    R0 = P0 * Q0                      # Baseline revenue
 
+    # Constant-elasticity demand/revenue curves: Q = Q₀·(P/P₀)^ε
     price_range = np.linspace(P0 * 0.20, P0 * 3.0, CURVE_POINTS)
     demand_curve = np.clip(Q0 * (price_range / P0) ** elast, 0, None)
     revenue_curve = price_range * demand_curve
-    opt_idx = int(np.argmax(revenue_curve))
+    opt_idx = int(np.argmax(revenue_curve))  # Revenue-maximising price point
 
     X_full = X.copy()
     fitted = np.exp(model.predict(X_full)).tolist()
 
+    # What-if scenarios: simulate demand/revenue at each price change %
     scenarios = []
     for pct in SCENARIOS:
         P1 = P0 * (1 + pct)
@@ -296,6 +319,7 @@ for sku_id in sorted(proc["sku"].unique()):
               f"p={r['elast_pval']:.3f}  "
               f"{'★' if r['elast_sig'] else ' '}  R²={r['r2']:.3f}")
 
+# Portfolio-level elasticity summary statistics
 elasticities = [r["elasticity"] for r in all_elast_data.values()]
 n_elastic = sum(1 for e in elasticities if e < -1)
 n_inelastic = sum(1 for e in elasticities if -1 <= e < 0)
@@ -304,6 +328,7 @@ avg_elast = round(float(np.mean(elasticities)), 3)
 most_sens = min(all_elast_data.values(), key=lambda r: r["elasticity"])
 least_sens = max(all_elast_data.values(), key=lambda r: r["elasticity"])
 
+# Build revenue-impact heatmap data (all SKUs × all price scenarios)
 heatmap_skus = sorted(all_elast_data.keys())
 heatmap_labels = [all_elast_data[s]["label"].replace("SKU ", "") for s in heatmap_skus]
 scenario_labels = [f"{'↑' if p > 0 else '↓'}{abs(int(p * 100))}%" for p in SCENARIOS]
@@ -414,17 +439,24 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     font-family:inherit; margin-bottom:-2px; }
   .tab-btn:hover { color:var(--slate-700); background:var(--slate-50); }
   .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
-  .tab-panel { display:none; }
+  .tab-panel { display:none; padding-top:.5rem; }
   .tab-panel.active { display:block; }
+  .tab-panel > .section-title:first-child { margin-top:.25rem; }
 
   /* Controls */
   .controls { display:flex; gap:1rem; align-items:center; flex-wrap:wrap;
     margin-bottom:1rem; }
-  select { font-family:inherit; font-size:1.05rem; padding:.65rem 1.1rem;
-    border-radius:8px; border:1px solid var(--slate-200); background:white;
-    min-width:300px; color:var(--slate-700); cursor:pointer; }
+  select { font-family:inherit; font-size:.95rem; padding:.7rem 2.4rem .7rem 1rem;
+    border-radius:10px; border:1px solid rgba(0,0,205,0.2); background:white;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%230000CD' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right .9rem center;
+    -webkit-appearance:none; -moz-appearance:none; appearance:none;
+    min-width:320px; color:var(--slate-800); cursor:pointer;
+    box-shadow:0 1px 3px rgba(0,0,205,0.06);
+    transition:border-color .15s, box-shadow .15s; }
+  select:hover { border-color:rgba(0,0,205,0.4); box-shadow:0 2px 8px rgba(0,0,205,0.1); }
   select:focus { outline:none; border-color:#0000CD;
-    box-shadow:0 0 0 3px rgba(0,0,205,0.12); }
+    box-shadow:0 0 0 3px rgba(0,0,205,0.15), 0 2px 8px rgba(0,0,205,0.1); }
   button { font-family:inherit; font-size:1.05rem; padding:.65rem 1.4rem;
     border-radius:8px; border:none; background:#00008B;
     color:white; font-weight:600; cursor:pointer; transition:background .15s; }
@@ -763,6 +795,7 @@ const BLUE   = "#2563EB", SLATE = "#0f172a", GREY_LG = "#cbd5e1",
 let activeTab = "guide";
 let demandRendered = false, promoRendered = false, elastRendered = false;
 
+/** Switch the active tab panel and lazy-render its content on first visit. */
 function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -802,10 +835,12 @@ function switchTab(tab) {
 /* ═══════════════════════════════════════════════════════════════════════════
    SHARED HELPERS
    ═══════════════════════════════════════════════════════════════════════════ */
+/** Generate HTML for a single KPI card. */
 function kpi(label, value, sub) {
   return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`;
 }
 
+/** Add N days to a YYYY-MM-DD date string; used to generate future forecast dates. */
 function addDays(dateStr, days) {
   const d = new Date(dateStr); d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
@@ -831,6 +866,7 @@ Object.keys(DEMAND_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
   demandSel.appendChild(opt);
 });
 
+/** Render the full demand forecasting view for the selected SKU, test size, and horizon. */
 function renderDemand() {
   const id = demandSel.value;
   const s  = DEMAND_DATA.skus[id];
@@ -976,6 +1012,7 @@ function renderDemand() {
   },plotCfg);
 }
 
+/** Render the all-SKU demand forecast heatmap (Random Forest, 4 weeks ahead). */
 function renderDemandHeatmap() {
   const ids=Object.keys(DEMAND_DATA.heatmap).sort((a,b)=>+a-+b);
   const yLabels=ids.map(id=>`SKU ${id}`);
@@ -1003,6 +1040,7 @@ Object.keys(ELAST_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
   elastSel.appendChild(opt);
 });
 
+/** Render per-SKU price elasticity detail: curves, model fit, waterfall, scenario table. */
 function renderElasticity() {
   const id = elastSel.value;
   const r  = ELAST_DATA.skus[id];
@@ -1101,7 +1139,7 @@ function renderElasticity() {
   document.getElementById("scenarioTable").innerHTML=stHtml;
 }
 
-/* Portfolio KPIs */
+/** Render portfolio-level elasticity KPI cards (all-SKU summary). */
 function renderPortfolioKpis() {
   const p=ELAST_DATA.portfolio;
   document.getElementById("portfolioKpis").innerHTML=[
@@ -1115,7 +1153,7 @@ function renderPortfolioKpis() {
   ].join("");
 }
 
-/* Ranking chart */
+/** Render horizontal bar chart ranking all SKUs by price elasticity. */
 function renderRanking() {
   const rows=Object.values(ELAST_DATA.skus).sort((a,b)=>a.elasticity-b.elasticity);
   const yLbls=rows.map(r=>r.label.replace("SKU ","")+( r.elast_sig?" ★":""));
@@ -1137,7 +1175,7 @@ function renderRanking() {
   },plotCfg);
 }
 
-/* Elasticity heatmap */
+/** Render revenue-impact heatmap (all SKUs × all price-change scenarios). */
 function renderElastHeatmap() {
   const hm=ELAST_DATA.heatmap;
   Plotly.newPlot("elastHeatmapChart",[{type:"heatmap",z:hm.z,x:hm.scenario_labels,y:hm.sku_labels,
@@ -1152,7 +1190,7 @@ function renderElastHeatmap() {
   },plotCfg);
 }
 
-/* Strategy table */
+/** Render all-SKU pricing strategy summary table with gradient effectiveness column. */
 function renderStrategyTable() {
   const rows=Object.values(ELAST_DATA.skus).sort((a,b)=>a.elasticity-b.elasticity);
   const n=rows.length;
@@ -1194,6 +1232,8 @@ Object.keys(ELAST_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
   promoSkuSel.appendChild(opt);
 });
 
+/** Calculate promotion lift metrics from a SKU's Scan*Pro promo coefficient.
+ *  Lift factor = e^β₂; incremental units = Q₀ × (e^β₂ − 1). */
 function promoLift(r) {
   const beta = r.promo_coef;
   const liftFactor = Math.exp(beta);
@@ -1203,6 +1243,7 @@ function promoLift(r) {
   return { beta, liftFactor, liftPct, incremental, sig, pval: r.promo_pval };
 }
 
+/** Render portfolio-level promotion effectiveness KPI cards. */
 function renderPromoPortfolio() {
   const skus = Object.values(ELAST_DATA.skus);
   const lifts = skus.map(r => promoLift(r));
@@ -1223,6 +1264,7 @@ function renderPromoPortfolio() {
   ].join("");
 }
 
+/** Render per-SKU promotion detail: header, interpretation, KPI cards. */
 function renderPromoSku() {
   const id = promoSkuSel.value;
   const r = ELAST_DATA.skus[id];
@@ -1254,6 +1296,7 @@ function renderPromoSku() {
   ].join("");
 }
 
+/** Render horizontal bar chart ranking all SKUs by incremental promo sales. */
 function renderPromoLiftChart() {
   const skus = Object.values(ELAST_DATA.skus);
   const rows = skus.map(r => ({...r, pl: promoLift(r)})).sort((a,b) => a.pl.incremental - b.pl.incremental);
@@ -1280,6 +1323,7 @@ function renderPromoLiftChart() {
   },plotCfg);
 }
 
+/** Render all-SKU promotion summary table with gradient effectiveness column. */
 function renderPromoSummaryTable() {
   const skus = Object.values(ELAST_DATA.skus);
   const rows = skus.map(r => ({...r, pl: promoLift(r)})).sort((a,b) => b.pl.incremental - a.pl.incremental);

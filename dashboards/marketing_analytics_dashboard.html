@@ -67,17 +67,24 @@
     font-family:inherit; margin-bottom:-2px; }
   .tab-btn:hover { color:var(--slate-700); background:var(--slate-50); }
   .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
-  .tab-panel { display:none; }
+  .tab-panel { display:none; padding-top:.5rem; }
   .tab-panel.active { display:block; }
+  .tab-panel > .section-title:first-child { margin-top:.25rem; }
 
   /* Controls */
   .controls { display:flex; gap:1rem; align-items:center; flex-wrap:wrap;
     margin-bottom:1rem; }
-  select { font-family:inherit; font-size:1.05rem; padding:.65rem 1.1rem;
-    border-radius:8px; border:1px solid var(--slate-200); background:white;
-    min-width:300px; color:var(--slate-700); cursor:pointer; }
+  select { font-family:inherit; font-size:.95rem; padding:.7rem 2.4rem .7rem 1rem;
+    border-radius:10px; border:1px solid rgba(0,0,205,0.2); background:white;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%230000CD' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right .9rem center;
+    -webkit-appearance:none; -moz-appearance:none; appearance:none;
+    min-width:320px; color:var(--slate-800); cursor:pointer;
+    box-shadow:0 1px 3px rgba(0,0,205,0.06);
+    transition:border-color .15s, box-shadow .15s; }
+  select:hover { border-color:rgba(0,0,205,0.4); box-shadow:0 2px 8px rgba(0,0,205,0.1); }
   select:focus { outline:none; border-color:#0000CD;
-    box-shadow:0 0 0 3px rgba(0,0,205,0.12); }
+    box-shadow:0 0 0 3px rgba(0,0,205,0.15), 0 2px 8px rgba(0,0,205,0.1); }
   button { font-family:inherit; font-size:1.05rem; padding:.65rem 1.4rem;
     border-radius:8px; border:none; background:#00008B;
     color:white; font-weight:600; cursor:pointer; transition:background .15s; }
@@ -416,6 +423,7 @@ const BLUE   = "#2563EB", SLATE = "#0f172a", GREY_LG = "#cbd5e1",
 let activeTab = "guide";
 let demandRendered = false, promoRendered = false, elastRendered = false;
 
+/** Switch the active tab panel and lazy-render its content on first visit. */
 function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -455,10 +463,12 @@ function switchTab(tab) {
 /* ═══════════════════════════════════════════════════════════════════════════
    SHARED HELPERS
    ═══════════════════════════════════════════════════════════════════════════ */
+/** Generate HTML for a single KPI card. */
 function kpi(label, value, sub) {
   return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`;
 }
 
+/** Add N days to a YYYY-MM-DD date string; used to generate future forecast dates. */
 function addDays(dateStr, days) {
   const d = new Date(dateStr); d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
@@ -484,6 +494,7 @@ Object.keys(DEMAND_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
   demandSel.appendChild(opt);
 });
 
+/** Render the full demand forecasting view for the selected SKU, test size, and horizon. */
 function renderDemand() {
   const id = demandSel.value;
   const s  = DEMAND_DATA.skus[id];
@@ -629,6 +640,7 @@ function renderDemand() {
   },plotCfg);
 }
 
+/** Render the all-SKU demand forecast heatmap (Random Forest, 4 weeks ahead). */
 function renderDemandHeatmap() {
   const ids=Object.keys(DEMAND_DATA.heatmap).sort((a,b)=>+a-+b);
   const yLabels=ids.map(id=>`SKU ${id}`);
@@ -656,6 +668,7 @@ Object.keys(ELAST_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
   elastSel.appendChild(opt);
 });
 
+/** Render per-SKU price elasticity detail: curves, model fit, waterfall, scenario table. */
 function renderElasticity() {
   const id = elastSel.value;
   const r  = ELAST_DATA.skus[id];
@@ -754,7 +767,7 @@ function renderElasticity() {
   document.getElementById("scenarioTable").innerHTML=stHtml;
 }
 
-/* Portfolio KPIs */
+/** Render portfolio-level elasticity KPI cards (all-SKU summary). */
 function renderPortfolioKpis() {
   const p=ELAST_DATA.portfolio;
   document.getElementById("portfolioKpis").innerHTML=[
@@ -768,7 +781,7 @@ function renderPortfolioKpis() {
   ].join("");
 }
 
-/* Ranking chart */
+/** Render horizontal bar chart ranking all SKUs by price elasticity. */
 function renderRanking() {
   const rows=Object.values(ELAST_DATA.skus).sort((a,b)=>a.elasticity-b.elasticity);
   const yLbls=rows.map(r=>r.label.replace("SKU ","")+( r.elast_sig?" ★":""));
@@ -790,7 +803,7 @@ function renderRanking() {
   },plotCfg);
 }
 
-/* Elasticity heatmap */
+/** Render revenue-impact heatmap (all SKUs × all price-change scenarios). */
 function renderElastHeatmap() {
   const hm=ELAST_DATA.heatmap;
   Plotly.newPlot("elastHeatmapChart",[{type:"heatmap",z:hm.z,x:hm.scenario_labels,y:hm.sku_labels,
@@ -805,7 +818,7 @@ function renderElastHeatmap() {
   },plotCfg);
 }
 
-/* Strategy table */
+/** Render all-SKU pricing strategy summary table with gradient effectiveness column. */
 function renderStrategyTable() {
   const rows=Object.values(ELAST_DATA.skus).sort((a,b)=>a.elasticity-b.elasticity);
   const n=rows.length;
@@ -847,6 +860,8 @@ Object.keys(ELAST_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
   promoSkuSel.appendChild(opt);
 });
 
+/** Calculate promotion lift metrics from a SKU's Scan*Pro promo coefficient.
+ *  Lift factor = e^β₂; incremental units = Q₀ × (e^β₂ − 1). */
 function promoLift(r) {
   const beta = r.promo_coef;
   const liftFactor = Math.exp(beta);
@@ -856,6 +871,7 @@ function promoLift(r) {
   return { beta, liftFactor, liftPct, incremental, sig, pval: r.promo_pval };
 }
 
+/** Render portfolio-level promotion effectiveness KPI cards. */
 function renderPromoPortfolio() {
   const skus = Object.values(ELAST_DATA.skus);
   const lifts = skus.map(r => promoLift(r));
@@ -876,6 +892,7 @@ function renderPromoPortfolio() {
   ].join("");
 }
 
+/** Render per-SKU promotion detail: header, interpretation, KPI cards. */
 function renderPromoSku() {
   const id = promoSkuSel.value;
   const r = ELAST_DATA.skus[id];
@@ -907,6 +924,7 @@ function renderPromoSku() {
   ].join("");
 }
 
+/** Render horizontal bar chart ranking all SKUs by incremental promo sales. */
 function renderPromoLiftChart() {
   const skus = Object.values(ELAST_DATA.skus);
   const rows = skus.map(r => ({...r, pl: promoLift(r)})).sort((a,b) => a.pl.incremental - b.pl.incremental);
@@ -933,6 +951,7 @@ function renderPromoLiftChart() {
   },plotCfg);
 }
 
+/** Render all-SKU promotion summary table with gradient effectiveness column. */
 function renderPromoSummaryTable() {
   const skus = Object.values(ELAST_DATA.skus);
   const rows = skus.map(r => ({...r, pl: promoLift(r)})).sort((a,b) => b.pl.incremental - a.pl.incremental);
