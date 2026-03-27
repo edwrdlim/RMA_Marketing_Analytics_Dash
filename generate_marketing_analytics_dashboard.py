@@ -851,7 +851,7 @@ function renderDemand() {
     title:`SKU ${id} — Demand Forecast`,height:460,hovermode:"closest",
     legend:{orientation:"h",y:-0.22,x:0.5,xanchor:"center",font:{size:11}},
     margin:{l:50,r:30,t:55,b:75},
-    xaxis:{title:"Week",type:"date",tickformat:"%d %b %Y"},yaxis:{title:"Weekly sales (units)",range:[0,yMax]},
+    xaxis:{title:"Week",type:"date",tickformat:"%d %b %Y"},yaxis:{title:"Weekly sales (units)",range:[0,yMax],dtick:25},
     shapes:[{type:"line",x0:lastTestDate,x1:lastTestDate,y0:0,y1:1,yref:"paper",
       line:{width:1.5,dash:"dash",color:"#94a3b8"}}],
     annotations:[{x:lastTestDate,y:1,yref:"paper",text:"Forecast →",showarrow:false,
@@ -880,7 +880,7 @@ function renderDemand() {
     textfont:{size:11,family:"monospace"},xaxis:`x${i+1}`,yaxis:`y${i+1}`,
   }));
   Plotly.newPlot("compChart",compTraces,{
-    height:280,margin:{l:45,r:20,t:35,b:20},grid:{rows:1,columns:3,pattern:"independent"},
+    height:380,margin:{l:55,r:20,t:45,b:40},grid:{rows:1,columns:3,pattern:"independent"},
     annotations:titles.map((t,i)=>({text:`<b>${t}</b>`,x:(i+0.5)/3,y:1.08,xref:"paper",yref:"paper",showarrow:false,font:{size:12}})),
   },plotCfg);
 
