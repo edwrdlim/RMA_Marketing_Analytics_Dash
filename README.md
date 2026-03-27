@@ -35,18 +35,16 @@ jupyter notebook
 2. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
 3. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
 
-## Regenerating the HTML Dashboards
+## Regenerating the HTML Dashboard
 
-The `scripts/` folder contains Python generators that produce self-contained HTML dashboards. Run them from the `scripts/` directory:
+The `scripts/` folder contains the Python generator that produces the self-contained HTML dashboard. Run it from the `scripts/` directory:
 
 ```bash
 cd scripts
 python generate_marketing_analytics_dashboard.py   # → dashboards/marketing_analytics_dashboard.html
-python generate_demand_dashboard.py                 # → dashboards/demand_forecasting_dashboard.html
-python generate_price_elasticity_dashboard.py       # → dashboards/price_elasticity_dashboard.html
 ```
 
-Then open the HTML files in `dashboards/` directly in a browser — no Python backend required.
+Then open `dashboards/marketing_analytics_dashboard.html` directly in a browser — no Python backend required.
 
 ---
 
@@ -66,13 +64,9 @@ Then open the HTML files in `dashboards/` directly in a browser — no Python ba
 │   ├── promotion_effectiveness.ipynb              # Module 2 — Promotion effectiveness (interactive)
 │   └── price_elasticity.ipynb                     # Module 3 — Price elasticity (interactive)
 ├── scripts/
-│   ├── generate_marketing_analytics_dashboard.py  # Generates the combined 4-tab HTML dashboard
-│   ├── generate_demand_dashboard.py               # Generates standalone demand forecasting HTML
-│   └── generate_price_elasticity_dashboard.py     # Generates standalone price elasticity HTML
+│   └── generate_marketing_analytics_dashboard.py  # Generates the 4-tab HTML dashboard
 └── dashboards/
-    ├── marketing_analytics_dashboard.html         # Combined dashboard (Interpretation Guide + 3 tabs)
-    ├── demand_forecasting_dashboard.html           # Standalone demand forecasting dashboard
-    └── price_elasticity_dashboard.html             # Standalone price elasticity dashboard
+    └── marketing_analytics_dashboard.html         # Combined dashboard (Interpretation Guide + 3 tabs)
 ```
 
 ---
