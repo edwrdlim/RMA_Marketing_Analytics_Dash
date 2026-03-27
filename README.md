@@ -1,6 +1,6 @@
 # Marketing Analytics Dashboard
 
-Two interactive Jupyter notebooks for retail demand forecasting and promotion effectiveness analysis across 44 SKUs over 100 weeks of sales data.
+A set of interactive Jupyter notebooks and a marketing analytics dashboard designed to showcase the retail demand forecasting and promotion effectiveness analysis across 44 SKUs over 100 weeks of sales data.
 
 ---
 
@@ -12,14 +12,13 @@ Two interactive Jupyter notebooks for retail demand forecasting and promotion ef
 ## Installation
 
 1. Clone or download this repository.
-
 2. Install the required Python packages:
 
 ```bash
 pip install pandas numpy plotly scikit-learn statsmodels ipywidgets
 ```
 
-3. (JupyterLab only) Enable the widgets extension:
+1. (JupyterLab only) Enable the widgets extension:
 
 ```bash
 pip install jupyterlab-widgets
@@ -33,9 +32,8 @@ pip install jupyterlab-widgets
 jupyter notebook
 ```
 
-2. Open either notebook and run all cells top-to-bottom (**Cell → Run All**).
-
-3. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
+1. Open either notebook and run all cells top-to-bottom (**Cell → Run All**).
+2. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
 
 > Both `data_raw.csv` and `data_processed.csv` must be in the same folder as the notebooks.
 
@@ -53,10 +51,12 @@ jupyter notebook
 
 ## Data Description
 
-| File | Rows | Description |
-|------|------|-------------|
-| `data_raw.csv` | 4,400 | Weekly sales by SKU with price, promo flag, color, vendor, and product category |
+
+| File                 | Rows  | Description                                                                                                          |
+| -------------------- | ----- | -------------------------------------------------------------------------------------------------------------------- |
+| `data_raw.csv`       | 4,400 | Weekly sales by SKU with price, promo flag, color, vendor, and product category                                      |
 | `data_processed.csv` | 4,312 | Enriched version with lagged prices (`price-1`, `price-2`), `trend`, month dummies, and one-hot encoded categoricals |
+
 
 **Key columns in `data_raw.csv`:** `week`, `sku`, `weekly_sales`, `price`, `feat_main_page` (promoted yes/no), `functionality` (product category), `color`, `vendor`
 
@@ -67,11 +67,13 @@ jupyter notebook
 Interactive demand forecasting dashboard. Select any SKU, configure the forecast horizon and test set size, then click **Run forecast**.
 
 **Models compared:**
+
 - Linear Regression (OLS baseline)
 - Random Forest (200 trees, max depth 8)
 - MLP Neural Network (64→32 hidden layers, scaled inputs)
 
 **How it works:**
+
 1. Splits data chronologically — the last N weeks become the test set (no data leakage)
 2. Trains all three models and picks the best by lowest MAE
 3. Projects demand forward with widening 95% confidence intervals
