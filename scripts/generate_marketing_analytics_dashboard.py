@@ -16,6 +16,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
 
 warnings.filterwarnings("ignore")
 
@@ -73,6 +74,48 @@ def get_features_target(proc, sku_id):
     return df[feature_cols].values, df["weekly_sales"].values, df["week"].values, feature_cols
 
 
+# ─── Hyperparameter tuning via TimeSeriesSplit cross-validation ──────────────
+# Select a representative sample of SKUs across the sales-volume distribution,
+# pool their training data, and run GridSearchCV with temporal folds.
+# This ensures RF and MLP hyperparameters are grounded in cross-validated
+# performance rather than arbitrary defaults.
+print("  Tuning hyperparameters (TimeSeriesSplit CV)...")
+
+sku_sales = proc.groupby("sku")["weekly_sales"].mean().sort_values()
+sample_skus = [sku_sales.index[i] for i in np.linspace(0, len(sku_sales) - 1, 8, dtype=int)]
+
+X_pool, y_pool = [], []
+for s in sample_skus:
+    X_s, y_s, _, _ = get_features_target(proc, s)
+    X_pool.append(X_s[:-8])  # training portion only
+    y_pool.append(y_s[:-8])
+X_pool = np.vstack(X_pool)
+y_pool = np.concatenate(y_pool)
+
+tscv = TimeSeriesSplit(n_splits=3)
+
+rf_search = GridSearchCV(
+    RandomForestRegressor(random_state=42, n_jobs=-1),
+    {"n_estimators": [100, 200, 300], "max_depth": [4, 6, 8, 12], "min_samples_leaf": [2, 4, 8]},
+    cv=tscv, scoring="neg_mean_absolute_error", n_jobs=-1,
+)
+rf_search.fit(X_pool, y_pool)
+TUNED_RF = rf_search.best_params_
+print(f"    RF best:  {TUNED_RF}  (CV MAE: {-rf_search.best_score_:.2f})")
+
+scaler_tune = StandardScaler()
+X_pool_s = scaler_tune.fit_transform(X_pool)
+
+mlp_search = GridSearchCV(
+    MLPRegressor(max_iter=500, early_stopping=True, validation_fraction=0.15, random_state=42),
+    {"hidden_layer_sizes": [(32,), (64, 32), (128, 64)], "learning_rate_init": [0.001, 0.005, 0.01]},
+    cv=tscv, scoring="neg_mean_absolute_error", n_jobs=-1,
+)
+mlp_search.fit(X_pool_s, y_pool)
+TUNED_MLP = mlp_search.best_params_
+print(f"    MLP best: {TUNED_MLP}  (CV MAE: {-mlp_search.best_score_:.2f})")
+
+
 def train_one_config(X, y, weeks, feature_cols, test_size):
     """Train all 3 models for one SKU with a given temporal test-set size.
 
@@ -94,10 +137,12 @@ def train_one_config(X, y, weeks, feature_cols, test_size):
     models = {
         "Linear Regression": LinearRegression(),
         "Random Forest": RandomForestRegressor(
-            n_estimators=200, max_depth=8, min_samples_leaf=4, random_state=42, n_jobs=-1),
+            n_estimators=TUNED_RF["n_estimators"], max_depth=TUNED_RF["max_depth"],
+            min_samples_leaf=TUNED_RF["min_samples_leaf"], random_state=42, n_jobs=-1),
         "Neural Network (MLP)": MLPRegressor(
-            hidden_layer_sizes=(64, 32), max_iter=500, early_stopping=True,
-            validation_fraction=0.15, random_state=42, learning_rate_init=0.005),
+            hidden_layer_sizes=TUNED_MLP["hidden_layer_sizes"], max_iter=500,
+            early_stopping=True, validation_fraction=0.15, random_state=42,
+            learning_rate_init=TUNED_MLP["learning_rate_init"]),
     }
 
     results = {}
@@ -181,7 +226,7 @@ for sku_id in sorted(proc["sku"].unique()):
     }
 
     # Separate lightweight RF for the all-SKU heatmap (4-week ahead)
-    hm_model = RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1)
+    hm_model = RandomForestRegressor(**TUNED_RF, random_state=42, n_jobs=-1)
     hm_model.fit(X, y)
     hm_row = X[-1].copy().reshape(1, -1)
     hm_preds = []
@@ -572,6 +617,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <p>Select any SKU from the dropdown to see its historical sales and predicted future demand.
       Three machine learning models (Linear Regression, Random Forest, and Neural Network) compete to forecast sales
       &mdash; the best-performing model is automatically highlighted.</p>
+    <p><b>Hyperparameter tuning:</b> Random Forest and MLP hyperparameters are selected via cross-validated grid search
+      with <code>TimeSeriesSplit</code> (3 folds) &mdash; ensuring temporal ordering is preserved.
+      Linear Regression has no hyperparameters to tune (OLS is the closed-form solution).</p>
+    <p><b>Why different preprocessing per model?</b> Linear Regression and Random Forest use raw (unscaled) features
+      because OLS is scale-invariant and tree-based models split on rank order, not magnitude.
+      The MLP neural network uses <code>StandardScaler</code>-normalised features because gradient descent
+      requires all features on a comparable scale to converge reliably &mdash; otherwise large-magnitude features
+      dominate the gradient updates.</p>
     <ul>
       <li><b>Interpretation box</b> &mdash; A plain-English summary tells you the expected demand, the trend direction, and the confidence range.</li>
       <li><b>Forecast chart</b> &mdash; The shaded band around the best model&rsquo;s forecast is the 95% confidence interval: the wider it gets, the more uncertain the prediction.</li>
@@ -655,17 +708,46 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <h3>Our Methodology — Demand Forecasting</h3>
     <p><b>Data:</b> 44 SKUs &times; 98 weeks from the processed dataset with lagged prices, trend, month dummies, and one-hot categoricals.</p>
     <p><b>Train/test split:</b> Last N weeks held out (temporal split &mdash; no data leakage).</p>
-    <p><b>Models:</b></p>
+
+    <p><b>Hyperparameter tuning:</b> Random Forest and MLP hyperparameters were selected via
+      <code>GridSearchCV</code> with <code>TimeSeriesSplit</code> (3 folds) on a representative
+      subset of 8 SKUs spanning the sales volume distribution. This ensures temporal ordering
+      is respected during validation (no future data leaks into training folds). The grid searched over:</p>
     <ul>
-      <li><b>Linear Regression</b> &mdash; OLS baseline on raw features</li>
-      <li><b>Random Forest</b> &mdash; 200 trees, max_depth=8, min_samples_leaf=4</li>
-      <li><b>Neural Network (MLP)</b> &mdash; 2 hidden layers (64&rarr;32), scaled inputs, early stopping</li>
+      <li><b>Random Forest:</b> <code>n_estimators</code> &isin; {100, 200, 300},
+        <code>max_depth</code> &isin; {4, 6, 8, 12},
+        <code>min_samples_leaf</code> &isin; {2, 4, 8} &mdash;
+        balancing ensemble size against overfitting risk on ~90 training rows per SKU.</li>
+      <li><b>MLP:</b> <code>hidden_layer_sizes</code> &isin; {(32,), (64,32), (128,64)},
+        <code>learning_rate_init</code> &isin; {0.001, 0.005, 0.01} &mdash;
+        calibrating network capacity and convergence speed.</li>
+      <li><b>Linear Regression:</b> No tuning needed &mdash; OLS is the unique closed-form solution.</li>
     </ul>
-    <p><b>Confidence intervals:</b> Training residual &sigma; &times; 1.96 &times; &radic;(step) &mdash; widens with forecast horizon. 95% level.</p>
+    <p>The winning hyperparameters (lowest cross-validated MAE) are then applied across all 44 SKUs.</p>
+
+    <p><b>Models and preprocessing:</b></p>
+    <ul>
+      <li><b>Linear Regression</b> &mdash; OLS on raw features.
+        Scale-invariant: the closed-form solution gives identical predictions regardless of feature scaling.</li>
+      <li><b>Random Forest</b> &mdash; Tuned via CV, raw features.
+        Tree splits use thresholds on rank order, so scaling has no effect on predictions.</li>
+      <li><b>Neural Network (MLP)</b> &mdash; Tuned via CV, <code>StandardScaler</code>-transformed inputs.
+        Gradient descent requires normalised features to converge reliably; without scaling,
+        large-magnitude features dominate the gradient updates (Bishop, 2006).</li>
+    </ul>
+
+    <p><b>Forecast projection:</b> The trend variable is incremented by 1/n_obs per forecast step
+      (continuing the historical rate). Other features are held at last-known values.</p>
+    <p><b>Confidence intervals:</b> &sigma;<sub>residual</sub> &times; 1.96 &times; &radic;(step).
+      The &radic;(step) factor reflects how forecast uncertainty accumulates: if one-step-ahead errors have
+      variance &sigma;&sup2; and errors are roughly independent, h-step-ahead variance is h&middot;&sigma;&sup2;,
+      giving standard deviation &sigma;&middot;&radic;h (Hyndman &amp; Athanasopoulos, 2021, &sect;5.5).
+      95% level.</p>
     <p><b>Best model selection:</b> Lowest MAE on the held-out test set.</p>
     <p style="margin-top:.75rem;font-size:.78rem;color:var(--slate-400);">
-      Reference: Cohen, M.C., Gras, P.E., Pentecoste, A., &amp; Zhang, R. (2022).
-      <i>Demand Prediction in Retail.</i> Springer SSCM 14.</p>
+      References: Bishop, C.M. (2006). <i>Pattern Recognition and Machine Learning.</i> Springer.
+      &middot; Cohen, M.C. et al. (2022). <i>Demand Prediction in Retail.</i> Springer SSCM 14.
+      &middot; Hyndman, R.J. &amp; Athanasopoulos, G. (2021). <i>Forecasting: Principles and Practice</i>, 3rd ed. OTexts.</p>
   </div>
 </div>
 
@@ -693,18 +775,45 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="methodology">
     <h3>Our Methodology &mdash; Feature Promotion Effectiveness</h3>
-    <p><b>Model:</b> The Scan*Pro log-log OLS model (fitted per SKU) includes a binary
-      <code>feat_main_page</code> indicator. The estimated coefficient &beta;&#8322;
-      captures the multiplicative lift in demand when a feature promotion is active.</p>
-    <p><b>Incremental sales:</b> Since the model is semi-log in the promotion variable,
-      the lift factor is <code>e<sup>&beta;&#8322;</sup></code>, meaning weekly sales
-      increase by a factor of <code>e<sup>&beta;&#8322;</sup></code> during promotion weeks.
-      Incremental units per week = Q&#8320; &times; (e<sup>&beta;&#8322;</sup> &minus; 1).</p>
+    <p><b>Model:</b> SCAN*PRO log-log OLS (Van Heerde et al., 2002) fitted per SKU:</p>
+    <p style="margin:.4rem 0 .4rem 1.2rem;font-family:monospace;font-size:.82rem;">
+      ln(sales<sub>it</sub>) = &alpha; + &beta;&#8321;&middot;ln(price<sub>it</sub>)
+      + &beta;&#8322;&middot;feat<sub>it</sub>
+      + &beta;&#8323;&middot;trend<sub>t</sub>
+      + &beta;&#8324;&middot;ln(price<sub>i,t-1</sub>)
+      + &beta;&#8325;&middot;ln(price<sub>i,t-2</sub>)
+      + &Sigma;&gamma;<sub>k</sub>&middot;month<sub>k</sub> + &epsilon;<sub>it</sub></p>
+
+    <p><b>Why these features?</b> Each variable isolates the true promotion effect:</p>
+    <ul>
+      <li><b>ln(price<sub>t</sub>)</b> &mdash; Controls for the contemporaneous price level.
+        Promotions are often paired with discounts; without this control, &beta;&#8322; would
+        capture both the promotion <i>and</i> the discount effect, overstating the promotion&rsquo;s own contribution.</li>
+      <li><b>feat_main_page</b> &mdash; The variable of interest. Its coefficient &beta;&#8322;
+        measures the <i>pure</i> promotional lift after controlling for price and other factors.
+        Since it is binary (0/1), it enters linearly &mdash; not logged &mdash; giving a semi-elasticity:
+        exp(&beta;&#8322;) &minus; 1 = proportional sales lift.</li>
+      <li><b>trend</b> &mdash; A linear time index absorbing secular growth or decline. Without it,
+        any upward drift in sales could inflate the promotion coefficient if promotions coincide with later weeks.</li>
+      <li><b>ln(price<sub>t-1</sub>), ln(price<sub>t-2</sub>)</b> &mdash; Lagged log prices capture
+        <i>dynamic pricing effects</i>: reference-price formation (consumers anchor to recent prices) and
+        stockpiling (a price drop in week t&minus;1 may cannibalise demand in week t). These lags are a
+        defining feature of SCAN*PRO &mdash; Van Heerde et al. (2002) showed that omitting them biases
+        both price and promotion coefficients.</li>
+      <li><b>month dummies</b> &mdash; Seasonal fixed effects remove calendar-driven demand variation
+        so &beta;&#8322; reflects genuine promotion response, not seasonal correlation.</li>
+    </ul>
+
+    <p><b>Incremental sales:</b> Lift factor = e<sup>&beta;&#8322;</sup>;
+      incremental units/week = Q&#8320; &times; (e<sup>&beta;&#8322;</sup> &minus; 1).</p>
     <p><b>Significance:</b> A p-value &lt; 0.05 on &beta;&#8322; indicates the promotion
-      effect is statistically distinguishable from zero at the 95% confidence level.</p>
+      effect is statistically distinguishable from zero at the 95% confidence level.
+      CI: exp(&beta;&#8322; &plusmn; 1.96&middot;SE) &minus; 1.</p>
     <p style="margin-top:.75rem;font-size:.78rem;color:var(--slate-400);">
-      Reference: Van Heerde, H.J., Leeflang, P.S.H., &amp; Wittink, D.R. (2004).
-      <i>Decomposing the Sales Promotion Bump.</i> Marketing Science, 23(3).</p>
+      References: Van Heerde, H.J., Leeflang, P.S.H., &amp; Wittink, D.R. (2002).
+      How promotions work: SCAN*PRO-based evolutionary model building.
+      <i>Schmalenbach Business Review</i>, 54, 198&ndash;220.
+      &middot; Hanssens, D.M. et al. (2001). <i>Market Response Models</i>, 2nd ed. Kluwer.</p>
   </div>
 </div>
 
@@ -758,15 +867,43 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <p style="margin:.4rem 0 .4rem 1.2rem;font-family:monospace;font-size:.82rem;">
       log(sales) = &beta;&#8320; + &beta;&#8321;&middot;log(price) + &beta;&#8322;&middot;feat_main_page + &beta;&#8323;&middot;trend + &Sigma;&gamma;&#8344;&middot;month&#8344; + &epsilon;</p>
     <p>The price coefficient <b>&beta;&#8321; is the price elasticity directly</b>.</p>
+
+    <p><b>Why log-log?</b> Taking the logarithm of both sales and price transforms the multiplicative
+      relationship into a linear one. The slope &beta;&#8321; = &part; ln Q / &part; ln P = (%&Delta;Q)/(%&Delta;P),
+      which is the standard definition of price elasticity. This constant-elasticity form makes scenario
+      simulation straightforward and is a standard simplification in marketing mix modelling
+      (Hanssens et al., 2001).</p>
+
+    <p><b>Why only contemporaneous price (no lags)?</b> This module estimates <i>steady-state</i>
+      elasticity for what-if pricing scenarios. Including lagged prices (as the Promotion tab does)
+      would decompose the effect into short-run and long-run components, complicating scenario simulation.
+      The Scan*Pro framework uses contemporaneous price for elasticity measurement, with lags reserved
+      for promotional carryover effects (Van Heerde et al., 2002).</p>
+
+    <p><b>Feature justification:</b></p>
+    <ul>
+      <li><b>log(price)</b> &mdash; The variable of interest; its coefficient is the price elasticity.</li>
+      <li><b>feat_main_page</b> &mdash; Controls for promotions so the price coefficient isn&rsquo;t
+        biased by simultaneous discounting + featuring.</li>
+      <li><b>trend</b> &mdash; Absorbs secular growth/decline so elasticity reflects price sensitivity, not time trends.</li>
+      <li><b>month dummies</b> &mdash; Seasonal fixed effects remove calendar-driven demand spikes
+        that could correlate with pricing cycles.</li>
+    </ul>
+
     <p><b>Scenario simulation:</b>
-      Q_new = Q&#8320; &times; (P_new/P&#8320;)^&epsilon; &nbsp;&middot;&nbsp; R_new = P_new &times; Q_new</p>
+      Q<sub>new</sub> = Q&#8320; &times; (P<sub>new</sub>/P&#8320;)<sup>&epsilon;</sup> &nbsp;&middot;&nbsp;
+      R<sub>new</sub> = P<sub>new</sub> &times; Q<sub>new</sub></p>
     <ul style="margin:.4rem 0 0 1.2rem;">
       <li><b>Elastic (|&epsilon;| &gt; 1):</b> Lowering price grows revenue</li>
       <li><b>Inelastic (|&epsilon;| &lt; 1):</b> Raising price grows revenue</li>
     </ul>
+    <p><b>Limitations:</b> Constant elasticity assumption may not hold at extreme prices;
+      no margin/cost floor (optimal price is purely revenue-maximising);
+      cross-price effects are not modelled; SKUs with limited price variation may have unreliable estimates.</p>
     <p style="margin-top:.75rem;font-size:.78rem;color:var(--slate-400);">
-      Reference: Cohen, M.C., Gras, P.E., Pentecoste, A., &amp; Zhang, R. (2022).
-      <i>Demand Prediction in Retail.</i> Springer SSCM 14.</p>
+      References: Van Heerde, H.J. et al. (2002). <i>Schmalenbach Business Review</i>, 54, 198&ndash;220.
+      &middot; Hanssens, D.M. et al. (2001). <i>Market Response Models</i>, 2nd ed. Kluwer.
+      &middot; Cohen, M.C. et al. (2022). <i>Demand Prediction in Retail.</i> Springer SSCM 14.</p>
   </div>
 </div>
 
