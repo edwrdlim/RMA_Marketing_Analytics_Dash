@@ -31,7 +31,7 @@ The following are only needed if you want to run the Jupyter notebooks or regene
 pip install pandas numpy plotly scikit-learn statsmodels ipywidgets
 ```
 
-1. (JupyterLab only) Enable the widgets extension:
+3. (JupyterLab only) Enable the widgets extension:
 
 ```bash
 pip install jupyterlab-widgets
@@ -45,8 +45,8 @@ pip install jupyterlab-widgets
 jupyter notebook
 ```
 
-1. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
-2. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
+2. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
+3. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
 
 ## Regenerating the HTML Dashboard
 
@@ -63,24 +63,27 @@ This reads the CSV data, trains all models, and produces a new `marketing_analyt
 
 ## Project Structure
 
+Repository layout (as on disk):
+
 ```
+.
 ├── README.md
-├── Imperial Fonts/                                # Custom Imperial Sans Display typeface
-│   ├── ImperialSansDisplay-Regular.woff2
-│   ├── ImperialSansDisplay-Medium.woff2
-│   └── ... (.ttf versions of each)
+├── .gitignore
+├── Imperial Fonts/                    # Imperial Sans Display: 7 weights (Extralight→Extrabold), each .woff2 + .ttf
 ├── data/
-│   ├── data_raw.csv                               # Raw weekly sales (4,400 rows: 44 SKUs × 100 weeks)
-│   └── data_processed.csv                         # Feature-engineered dataset (lagged prices, trend, dummies)
+│   ├── data_raw.csv                   # Raw weekly sales (4,400 rows: 44 SKUs × 100 weeks)
+│   └── data_processed.csv             # Feature-engineered dataset (lagged prices, trend, dummies)
 ├── notebooks/
-│   ├── demand_forecasting.ipynb                   # Module 1 — Demand forecasting (interactive)
-│   ├── promotion_effectiveness.ipynb              # Module 2 — Promotion effectiveness (interactive)
-│   └── price_elasticity.ipynb                     # Module 3 — Price elasticity (interactive)
+│   ├── demand_forecasting.ipynb       # Module 1 — Demand forecasting
+│   ├── promotion_effectiveness.ipynb  # Module 2 — Promotion effectiveness
+│   └── price_elasticity.ipynb         # Module 3 — Price elasticity
 ├── scripts/
-│   └── generate_marketing_analytics_dashboard.py  # Generates the 4-tab HTML dashboard
+│   └── generate_marketing_analytics_dashboard.py   # Builds dashboards/marketing_analytics_dashboard.html
 └── dashboards/
-    └── marketing_analytics_dashboard.html         # Combined dashboard (Interpretation Guide + 3 tabs)
+    └── marketing_analytics_dashboard.html          # Self-contained UI: Interpretation Guide + 3 analysis tabs
 ```
+
+The HTML file embeds all model outputs; `Imperial Fonts/` must sit one level above `dashboards/` (as here) so `@font-face` URLs resolve when you open the dashboard in a browser.
 
 ---
 
@@ -93,7 +96,7 @@ This reads the CSV data, trains all models, and produces a new `marketing_analyt
 | `data/data_processed.csv` | 4,312 | Enriched version with lagged prices (`price-1`, `price-2`), `trend`, month dummies, and one-hot encoded categoricals |
 
 
-**Key columns in `data_raw.csv`:** `week`, `sku`, `weekly_sales`, `price`, `feat_main_page` (promoted yes/no), `functionality` (product category), `color`, `vendor`
+**Key columns in `data/data_raw.csv`:** `week`, `sku`, `weekly_sales`, `price`, `feat_main_page` (promoted yes/no), `functionality` (product category), `color`, `vendor`
 
 ---
 
