@@ -1,5 +1,7 @@
 # Marketing Analytics Dashboard
 
+Author: Group B | Edward Lim,  Fabricio Rodriguez Peña,  Rafia Al-Jassim,  Rathes Waran,  Wenyuan Yun
+
 A set of interactive Jupyter notebooks and an HTML dashboard for retail demand forecasting, promotion effectiveness analysis, and price elasticity modelling across 44 SKUs over 100 weeks of sales data.
 
 ---
@@ -31,7 +33,7 @@ The following are only needed if you want to run the Jupyter notebooks or regene
 pip install pandas numpy plotly scikit-learn statsmodels ipywidgets
 ```
 
-3. (JupyterLab only) Enable the widgets extension:
+1. (JupyterLab only) Enable the widgets extension:
 
 ```bash
 pip install jupyterlab-widgets
@@ -45,8 +47,8 @@ pip install jupyterlab-widgets
 jupyter notebook
 ```
 
-2. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
-3. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
+1. Open any notebook from the `notebooks/` folder and run all cells top-to-bottom (**Cell → Run All**).
+2. Use the interactive dropdown menus, sliders, and buttons inside the notebooks to explore different SKUs and settings.
 
 ## Regenerating the HTML Dashboard
 
