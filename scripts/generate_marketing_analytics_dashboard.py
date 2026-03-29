@@ -350,7 +350,7 @@ def fit_scanpro(sku_id):
     X = sm.add_constant(X, has_constant="add")
 
     try:
-        model = sm.OLS(y, X).fit()
+        model = sm.OLS(y, X).fit(cov_type='HC1')  # Robust SE for heteroscedasticity
     except Exception:
         return None
 
@@ -439,7 +439,7 @@ least_sens = max(all_elast_data.values(), key=lambda r: r["elasticity"])
 
 # Build revenue-impact heatmap data (all SKUs × all price scenarios)
 heatmap_skus = sorted(all_elast_data.keys())
-heatmap_labels = [all_elast_data[s]["label"].replace("SKU ", "") for s in heatmap_skus]
+heatmap_labels = [f"SKU {s}" for s in heatmap_skus]
 scenario_labels = [f"{'↑' if p > 0 else '↓'}{abs(int(p * 100))}%" for p in SCENARIOS]
 heatmap_z, heatmap_text = [], []
 for sku_id in heatmap_skus:
@@ -643,6 +643,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .methodology ul { padding-left:1.2rem; }
   footer { text-align:center; padding:2rem 0;
     font-size:.78rem; color:var(--slate-400); }
+  .elast-sub { padding-top:.5rem; }
 </style>
 </head>
 <body>
@@ -680,21 +681,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <h3 style="margin-top:1.2rem;">1. Demand Forecasting</h3>
     <p>Select any SKU from the dropdown to see its historical sales and predicted future demand.
       Four models compete: a na&iuml;ve moving-average baseline plus three ML models (Linear Regression, Random Forest, Neural Network)
-      &mdash; the best-performing model is automatically highlighted.</p>
-    <p><b>Hyperparameter tuning:</b> Random Forest and MLP hyperparameters are selected via cross-validated grid search
-      with <code>TimeSeriesSplit</code> (3 folds) &mdash; ensuring temporal ordering is preserved.
-      Linear Regression has no hyperparameters to tune (OLS is the closed-form solution).</p>
-    <p><b>Why different preprocessing per model?</b> Linear Regression and Random Forest use raw (unscaled) features
-      because OLS is scale-invariant and tree-based models split on rank order, not magnitude.
-      The MLP neural network uses <code>StandardScaler</code>-normalised features because gradient descent
-      requires all features on a comparable scale to converge reliably &mdash; otherwise large-magnitude features
-      dominate the gradient updates.</p>
+      &mdash; the best-performing model (lowest MAE on the held-out test set) is automatically highlighted.</p>
     <ul>
-      <li><b>Interpretation box</b> &mdash; A plain-English summary tells you the expected demand, the trend direction, and the confidence range.</li>
-      <li><b>Forecast chart</b> &mdash; The shaded band around the best model&rsquo;s forecast is the 95% confidence interval: the wider it gets, the more uncertain the prediction.</li>
-      <li><b>Forecast weeks slider</b> &mdash; Adjust to look further ahead (2&ndash;12 weeks).</li>
-      <li><b>Test size slider</b> &mdash; Controls how many of the most recent weeks are held out from training and used as evaluation data. A smaller test size (4&ndash;6) gives the models more training data but fewer weeks to visually compare predictions against reality. A larger test size (12&ndash;16) provides a longer comparison window but less training data. Use this to stress-test the models &mdash; if a model scores well at test size 8 but poorly at 14, it may be overfitting. Consistent results across different test sizes build confidence in the forecast.</li>
-      <li><b>Heatmap</b> &mdash; Gives a quick portfolio-level view of predicted demand across all SKUs.</li>
+      <li><b>Interpretation box</b> &mdash; Plain-English summary of expected demand, trend direction, and the 95% confidence range.</li>
+      <li><b>Forecast chart</b> &mdash; The shaded band around the best model&rsquo;s forecast is the 95% CI: it widens with horizon, reflecting increasing uncertainty.</li>
+      <li><b>Forecast weeks slider</b> &mdash; Adjust to look 2&ndash;12 weeks ahead.</li>
+      <li><b>Test size slider</b> &mdash; Controls how many recent weeks are held out for evaluation. Smaller values give more training data; larger values give a longer comparison window. Consistent performance across test sizes builds confidence in the forecast.</li>
+      <li><b>Residuals &amp; Feature Importance</b> &mdash; Diagnostics panel showing prediction errors and which features (price, promotion, trend, quarter, price change) drive each SKU&rsquo;s demand most.</li>
+      <li><b>All-SKU Heatmap</b> &mdash; Portfolio-level view of Random Forest demand forecasts for all 44 SKUs across the next 4 weeks.</li>
     </ul>
 
     <h3 style="margin-top:1.2rem;">2. Promotion Effectiveness</h3>
@@ -711,12 +705,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </ul>
 
     <h3 style="margin-top:1.2rem;">3. Price Elasticity</h3>
-    <p>This tab answers: <i>&ldquo;How sensitive is each SKU&rsquo;s demand to price changes?&rdquo;</i></p>
+    <p>This tab answers: <i>&ldquo;How sensitive is each SKU&rsquo;s demand to price changes, and what happens to revenue if we change price?&rdquo;</i></p>
+    <p>Elasticity is estimated using a <b>Scan*Pro log-log OLS model</b> per SKU, controlling for promotions, trend, and seasonality. The coefficient &epsilon; directly gives price elasticity.</p>
     <ul>
-      <li><b>Elasticity (&epsilon;)</b> &mdash; A value of &minus;2 means a 10% price increase causes a ~20% drop in demand. Values below &minus;1 are &ldquo;elastic&rdquo; (price-sensitive); above &minus;1 are &ldquo;inelastic.&rdquo;</li>
-      <li><b>Demand &amp; Revenue curves</b> &mdash; Show the trade-off between price and volume. The &#9733; on the revenue curve marks the revenue-maximising price.</li>
-      <li><b>Scenario table</b> &mdash; Shows the exact impact of raising or lowering price by 5&ndash;30%.</li>
-      <li><b>Strategy column</b> &mdash; Recommends whether to consider raising or lowering price based on elasticity.</li>
+      <li><b>Elasticity (&epsilon;)</b> &mdash; A value of &minus;2 means a 10% price rise causes a ~20% demand drop. &epsilon; below &minus;1 = elastic (price-sensitive); between &minus;1 and 0 = inelastic. A &#9733; means the result is statistically significant (p &lt; 0.05).</li>
+      <li><b>Overview sub-tab</b> &mdash; Portfolio-level bar chart, distribution histogram, and pie chart showing how many SKUs fall into each elasticity category. Full results table with p-values and R&sup2;.</li>
+      <li><b>SKU Deep Dive</b> &mdash; Per-SKU demand and revenue curves, a waterfall chart of revenue impact at standard scenarios, and a full what-if scenario table. The &#9733; on the revenue curve marks the revenue-maximising price.</li>
+      <li><b>Scenario Testing</b> &mdash; Standard &plusmn;5%, 10%, 20%, 30% impact table with demand and revenue bar charts. Use the <b>custom slider</b> (&minus;30% to +30%) to simulate any price change and see demand and revenue impact instantly.</li>
+      <li><b>Portfolio Analysis</b> &mdash; Category-level box plots, a ranking chart of all SKUs by elasticity with 95% confidence-based colour coding, a revenue impact heatmap across all SKUs and scenarios, and a pricing strategy recommendation table.</li>
+      <li><b>Pricing rule of thumb:</b> Elastic SKUs (&epsilon; &lt; &minus;1) grow revenue by cutting price; inelastic SKUs (&epsilon; between &minus;1 and 0) grow revenue by raising price.</li>
     </ul>
 
     <h3 style="margin-top:1.2rem;">General Tips</h3>
@@ -757,19 +754,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <h3 class="section-title">Forecast Detail</h3>
   <div id="forecastTable"></div>
 
-  <div style="margin-top:2rem;">
-    <h3 class="section-title">All-SKU Forecast Heatmap (Random Forest)</h3>
-    <div class="chart-card"><div id="demandHeatmapChart"></div></div>
-  </div>
-
-  <h3 class="section-title">Model Comparison</h3>
-  <div class="chart-card"><div id="compChart"></div></div>
-  <div id="metricsTable"></div>
-
   <h3 class="section-title">Diagnostics</h3>
   <div class="grid-2">
     <div class="chart-card"><div id="residChart"></div></div>
     <div class="chart-card"><div id="featChart"></div></div>
+  </div>
+
+  <div style="margin-top:2.5rem;">
+    <h3 class="section-title">All-SKU Forecast Heatmap (Random Forest)</h3>
+    <div class="chart-card"><div id="demandHeatmapChart"></div></div>
   </div>
 
   <div class="methodology">
@@ -820,6 +813,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     <p><b>Confidence intervals:</b> &sigma;<sub>residual</sub> &times; 1.96 &times; &radic;(step) &mdash;
       widens with forecast horizon (Hyndman &amp; Athanasopoulos, 2021).</p>
+    <p><b>Feature importance (RF-based):</b> The diagnostics section shows Random Forest&rsquo;s
+      importance ranking. RF importance is scale-invariant, captures non-linear effects, and is
+      robust to multicollinearity &mdash; unlike LR coefficients (scale-dependent) or MLP weights (opaque).
+      This tells the marketing manager which levers most influence each SKU&rsquo;s demand.</p>
+
+    <p><b>All-SKU heatmap (RF-based):</b> The portfolio heatmap uses RF because it offers non-linear
+      flexibility, requires no preprocessing (unlike MLP), and averages across many trees for robustness.
+      For the per-SKU analysis, all four models are shown for honest comparison.</p>
+
     <p><b>Best model selection:</b> Lowest MAE on the held-out test set &mdash; na&iuml;ve baseline included.</p>
     <p style="margin-top:.75rem;font-size:.78rem;color:var(--slate-400);">
       References: Cohen, M.C. et al. (2022). <i>Demand Prediction in Retail.</i> Springer SSCM 14.
@@ -907,92 +909,114 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div id="tab-elasticity" class="tab-panel">
 
-  <h3 class="section-title">Portfolio Overview &mdash; All SKUs</h3>
-  <div id="portfolioKpis" class="kpi-row"></div>
+  <!-- Sub-tab bar -->
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--slate-200);margin-bottom:.75rem;">
+    <button class="tab-btn active" onclick="switchElastSub('overview')" id="esub-overview">Overview</button>
+    <button class="tab-btn" onclick="switchElastSub('skuDive')" id="esub-skuDive">SKU Deep Dive</button>
+    <button class="tab-btn" onclick="switchElastSub('scenarios')" id="esub-scenarios">Scenario Testing</button>
+    <button class="tab-btn" onclick="switchElastSub('portfolio')" id="esub-portfolio">Portfolio Analysis</button>
+  </div>
 
-  <h3 class="section-title">Elasticity Ranking</h3>
-  <div class="chart-card"><div id="rankingChart"></div></div>
+  <!-- ═══════════════════ SUB-TAB 1: OVERVIEW ═══════════════════ -->
+  <div id="elast-overview" class="elast-sub" style="display:block;">
+    <div id="overviewKpis" class="kpi-row"></div>
 
-  <h3 class="section-title">Revenue Impact Heatmap &mdash; All SKUs &times; All Scenarios</h3>
-  <div class="chart-card"><div id="elastHeatmapChart"></div></div>
-
-  <h3 class="section-title">All-SKU Price Strategy Summary</h3>
-  <div id="strategyTable"></div>
-
-  <div style="margin-top:2.5rem;">
-    <h3 class="section-title">SKU Deep-Dive</h3>
-    <div class="controls">
-      <select id="elastSkuSelect" onchange="renderElasticity()"></select>
-    </div>
-
-    <div id="elastHeader" class="sku-header"></div>
-    <div id="elastInterpBox" class="interp" style="display:none"></div>
-    <div id="elastKpiRow" class="kpi-row"></div>
+    <h3 class="section-title">Price Elasticity by SKU</h3>
+    <div class="chart-card"><div id="overviewBarChart"></div></div>
 
     <div class="grid-2">
-      <div class="chart-card"><div id="demandCurveChart"></div></div>
-      <div class="chart-card"><div id="revenueCurveChart"></div></div>
+      <div>
+        <h3 class="section-title">Elasticity Distribution</h3>
+        <div class="chart-card"><div id="overviewPie"></div></div>
+      </div>
+      <div>
+        <h3 class="section-title">Elasticity Histogram</h3>
+        <div class="chart-card"><div id="overviewHist"></div></div>
+      </div>
     </div>
 
-    <h3 class="section-title">Scan*Pro Model Fit &mdash; Actual vs Fitted</h3>
-    <div class="chart-card"><div id="fitChart"></div></div>
+    <h3 class="section-title">Full Elasticity Results</h3>
+    <div id="overviewTable" style="overflow-x:auto"></div>
+  </div>
+
+  <!-- ═══════════════════ SUB-TAB 2: SKU DEEP DIVE ═══════════════════ -->
+  <div id="elast-skuDive" class="elast-sub" style="display:none;">
+    <div class="controls">
+      <select id="elastSkuSelect" onchange="renderSKUDive()"></select>
+    </div>
+    <div id="diveHeader" class="sku-header"></div>
+    <div id="diveInterp" class="interp" style="display:none"></div>
+    <div id="diveKpis" class="kpi-row"></div>
+
+    <div class="grid-2">
+      <div class="chart-card"><div id="diveDemandCurve"></div></div>
+      <div class="chart-card"><div id="diveRevenueCurve"></div></div>
+    </div>
 
     <h3 class="section-title">Revenue Impact by Price Scenario</h3>
-    <div class="chart-card"><div id="waterfallChart"></div></div>
+    <div class="chart-card"><div id="diveWaterfall"></div></div>
 
     <h3 class="section-title">What-If Scenario Table</h3>
-    <div id="scenarioTable"></div>
+    <div id="diveScenarioTable"></div>
+  </div>
+
+  <!-- ═══════════════════ SUB-TAB 3: SCENARIO TESTING ═══════════════════ -->
+  <div id="elast-scenarios" class="elast-sub" style="display:none;">
+    <div class="controls">
+      <select id="skuSelectScenario" onchange="renderScenarioTab()"></select>
+    </div>
+    <div id="scenarioInfo"></div>
+
+    <h3 class="section-title">Standard Scenarios (&plusmn;5%, 10%, 20%, 30%)</h3>
+    <div id="scenarioStdTable" style="overflow-x:auto"></div>
+
+    <div class="grid-2">
+      <div class="chart-card"><div id="scenarioDemandBar"></div></div>
+      <div class="chart-card"><div id="scenarioRevenueBar"></div></div>
+    </div>
+
+    <h3 class="section-title">Custom Price Change</h3>
+    <div style="width:100%;margin-bottom:.75rem;">
+      <input type="range" id="customSlider" min="-30" max="30" value="0" step="1" oninput="updateCustomScenario()" style="width:100%;accent-color:#0000CD;cursor:pointer;display:block;">
+      <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--slate-400);margin-top:.25rem;"><span>-30%</span><span>0%</span><span>+30%</span></div>
+      <div style="text-align:center;font-weight:700;font-size:1.1rem;margin:.4rem 0;color:#0000CD;" id="sliderLabel">0%</div>
+    </div>
+    <div id="customResult"></div>
+  </div>
+
+  <!-- ═══════════════════ SUB-TAB 4: PORTFOLIO ANALYSIS ═══════════════════ -->
+  <div id="elast-portfolio" class="elast-sub" style="display:none;">
+    <div id="portfolioKpis" class="kpi-row"></div>
+
+    <h3 class="section-title">Elasticity by Product Category</h3>
+    <div class="chart-card"><div id="portfolioByFunc"></div></div>
+
+    <h3 class="section-title">Elasticity Ranking (with 95% CI)</h3>
+    <div class="chart-card"><div id="rankingChart"></div></div>
+
+    <h3 class="section-title">Revenue Impact Heatmap &mdash; All SKUs &times; All Scenarios</h3>
+    <div class="chart-card"><div id="elastHeatmapChart"></div></div>
+
+    <h3 class="section-title">Price Strategy Summary</h3>
+    <div id="strategyTable"></div>
   </div>
 
   <div class="methodology">
-    <h3>Our Methodology — Price Elasticity &amp; Scenario Testing</h3>
-
-    <p><b>The question:</b> How sensitive is each SKU&rsquo;s demand to price changes?
-      How would a 10% price increase or decrease impact demand and revenue?</p>
-
-    <p><b>Why we need a model (not just correlation):</b> Observing that &ldquo;weeks with lower prices had higher sales&rdquo;
-      conflates the price effect with promotions (products are often discounted <i>and</i> featured together),
-      seasonality (prices may drop during high-demand holiday periods), and trend.
-      We need to isolate the <i>pure</i> price sensitivity after controlling for these confounders.</p>
-
-    <p><b>Why Scan*Pro for elasticity?</b> The Scan*Pro log-log specification produces a coefficient
-      (&beta;&#8321;) that <i>directly equals</i> the price elasticity &mdash; no further transformation needed.
-      This is a standard microeconomic result: in a log-log model,
-      &beta;&#8321; = &part;ln(Q)/&part;ln(P) = (%&Delta;Q)/(%&Delta;P).</p>
-
-    <p><b>Model:</b></p>
+    <h3>Our Methodology &mdash; Price Elasticity &amp; Scenario Testing</h3>
+    <p><b>The question:</b> How sensitive is each SKU&rsquo;s demand to price changes?</p>
+    <p><b>Model:</b> Scan*Pro log-log OLS with HC1 robust standard errors, fitted per SKU.</p>
     <p style="margin:.4rem 0 .4rem 1.2rem;font-family:monospace;font-size:.82rem;">
-      log(sales) = &beta;&#8320; + &beta;&#8321;&middot;log(price) + &beta;&#8322;&middot;feat_main_page + &beta;&#8323;&middot;trend + &Sigma;&gamma;&#8344;&middot;month&#8344; + &epsilon;</p>
-
-    <p><b>Key design choice &mdash; no lagged prices:</b> The Promotion tab includes lagged prices to capture
-      reference-price formation. This tab deliberately excludes them because the goal is different:
-      we want <i>steady-state</i> elasticity for what-if scenarios (&ldquo;what if we permanently raise price 10%?&rdquo;).
-      Including lags would split the effect into short-run and long-run components, complicating the
-      scenario simulation (which lag structure to propagate forward?). The contemporaneous-only specification
-      gives a single, clean elasticity number suitable for pricing decisions.</p>
-
-    <p><b>Why each feature:</b></p>
-    <ul>
-      <li><b>log(price)</b> &mdash; The variable of interest. &beta;&#8321; = price elasticity directly.</li>
-      <li><b>feat_main_page</b> &mdash; Controls for promotions so &beta;&#8321; isn&rsquo;t biased by
-        simultaneous discounting + featuring.</li>
-      <li><b>trend</b> &mdash; Absorbs secular growth/decline so elasticity reflects price sensitivity, not time trends.</li>
-      <li><b>month dummies</b> &mdash; Remove seasonal demand spikes that could correlate with pricing cycles.</li>
-    </ul>
-
-    <p><b>Scenario simulation:</b> Uses the constant-elasticity demand function:
-      Q<sub>new</sub> = Q&#8320; &times; (P<sub>new</sub>/P&#8320;)<sup>&epsilon;</sup>,
-      R<sub>new</sub> = P<sub>new</sub> &times; Q<sub>new</sub>.
-      Elastic SKUs (|&epsilon;| &gt; 1) gain revenue from price cuts;
-      inelastic SKUs (|&epsilon;| &lt; 1) gain from price rises.</p>
-
-    <p><b>Limitations:</b> Constant elasticity may not hold at extreme prices;
-      no margin/cost floor (optimal price is revenue-maximising, not profit-maximising);
-      cross-price effects not modelled; SKUs with limited price variation may have unreliable estimates;
-      promotions are treated as exogenous.</p>
-    <p style="margin-top:.75rem;font-size:.78rem;color:var(--slate-400);">
-      References: Van Heerde et al. (2002). <i>Schmalenbach Business Review</i>, 54, 198&ndash;220.
-      &middot; Hanssens et al. (2001). <i>Market Response Models</i>, 2nd ed. Kluwer.</p>
+      log(sales) = &beta;&#8320; + &beta;&#8321;&middot;log(price) + &beta;&#8322;&middot;feat + &beta;&#8323;&middot;trend + &Sigma;&gamma;&middot;month + &epsilon;</p>
+    <p>&beta;&#8321; = price elasticity directly. No lagged prices &mdash; we estimate steady-state
+      elasticity for what-if scenarios.</p>
+    <p><b>Scenario:</b> Q<sub>new</sub> = Q&#8320;&times;(P<sub>new</sub>/P&#8320;)<sup>&epsilon;</sup>,
+      R<sub>new</sub> = P<sub>new</sub>&times;Q<sub>new</sub>.
+      Elastic (|&epsilon;|&gt;1): cut price &rarr; grow revenue.
+      Inelastic (|&epsilon;|&lt;1): raise price &rarr; grow revenue.</p>
+    <p><b>Classification:</b> Inelastic (|&epsilon;|&lt;1), Moderately Elastic (1&le;|&epsilon;|&lt;2), Highly Elastic (|&epsilon;|&ge;2).</p>
+    <p style="font-size:.78rem;color:var(--slate-400);margin-top:.5rem;">
+      References: Van Heerde et al. (2002). <i>Schmalenbach Business Review</i>, 54.
+      &middot; Hanssens et al. (2001). <i>Market Response Models</i>, 2nd ed.</p>
   </div>
 </div>
 
@@ -1038,11 +1062,8 @@ function switchTab(tab) {
   }
   if (tab === "elasticity" && !elastRendered) {
     elastRendered = true;
-    renderPortfolioKpis();
-    renderRanking();
-    renderElastHeatmap();
-    renderStrategyTable();
-    renderElasticity();
+    ePopulateSelects();
+    renderElastOverview();  // First sub-tab renders immediately
   }
   if (tab === "demand" && !demandRendered) {
     demandRendered = true;
@@ -1197,27 +1218,6 @@ function renderDemand() {
   html+="</table>";
   document.getElementById("forecastTable").innerHTML=html;
 
-  /* Comparison bars */
-  const metrics=["mae","rmse","r2"], titles=["MAE ↓","RMSE ↓","R² ↑"];
-  const compTraces=metrics.map((met,i)=>({
-    x:DM_MODEL_NAMES,y:DM_MODEL_NAMES.map(n=>cfg.results[n][met]),
-    type:"bar",marker:{color:DM_MODEL_NAMES.map(n=>DM_COLORS[n])},showlegend:false,
-    text:DM_MODEL_NAMES.map(n=>cfg.results[n][met].toFixed(2)),textposition:"outside",
-    textfont:{size:11,family:"monospace"},xaxis:`x${i+1}`,yaxis:`y${i+1}`,
-  }));
-  Plotly.newPlot("compChart",compTraces,{
-    height:480,margin:{l:65,r:20,t:50,b:50},grid:{rows:1,columns:3,pattern:"independent"},
-    yaxis:{tickfont:{size:7}},yaxis2:{tickfont:{size:7}},yaxis3:{tickfont:{size:7}},
-    annotations:titles.map((t,i)=>({text:`<b>${t}</b>`,x:(i+0.5)/3,y:1.08,xref:"paper",yref:"paper",showarrow:false,font:{size:12}})),
-  },plotCfg);
-
-  /* Metrics table */
-  let mt="<table><tr><th class='lt'>Model</th><th class='lt'>MAE</th><th class='lt'>RMSE</th><th class='lt'>MAPE %</th><th class='lt'>R²</th><th class='lt'></th></tr>";
-  DM_MODEL_NAMES.forEach(n=>{const r=cfg.results[n];const cls=n===best?' class="best"':'';
-    mt+=`<tr${cls}><td style="text-align:left">${n}</td><td>${r.mae.toFixed(2)}</td><td>${r.rmse.toFixed(2)}</td><td>${r.mape.toFixed(1)}</td><td>${r.r2.toFixed(3)}</td><td>${n===best?"★":""}</td></tr>`;});
-  mt+="</table>";
-  document.getElementById("metricsTable").innerHTML=mt;
-
   /* Residuals */
   const residuals=yTest.map((v,i)=>+(v-bRes.y_pred_test[i]).toFixed(2));
   Plotly.newPlot("residChart",[{x:wTest,y:residuals,type:"bar",
@@ -1256,197 +1256,340 @@ function renderDemandHeatmap() {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PRICE ELASTICITY
+   PRICE ELASTICITY — 4 sub-tabs (Overview, SKU Deep Dive, Scenario Testing, Portfolio)
    ═══════════════════════════════════════════════════════════════════════════ */
-const elastSel = document.getElementById("elastSkuSelect");
-Object.keys(ELAST_DATA.skus).sort((a,b)=>+a-+b).forEach(id => {
-  const opt = document.createElement("option");
-  opt.value = id;
-  opt.textContent = ELAST_DATA.skus[id].label;
-  elastSel.appendChild(opt);
-});
+const E = ELAST_DATA;
+const ELAST_SCENARIOS = [-30,-20,-10,-5,5,10,20,30];
+const E_COLORS = {inelastic:'#22c55e', moderate:'#f59e0b', elastic:'#ef4444'};
+const E_CAT_COLORS = {'Inelastic':E_COLORS.inelastic,'Moderately Elastic':E_COLORS.moderate,'Highly Elastic':E_COLORS.elastic};
 
-/** Render per-SKU price elasticity detail: curves, model fit, waterfall, scenario table. */
-function renderElasticity() {
-  const id = elastSel.value;
-  const r  = ELAST_DATA.skus[id];
-  const e  = r.elasticity;
-  const P0 = r.avg_price, Q0 = r.avg_sales, R0 = r.avg_revenue;
+// Build flat data array from ELAST_DATA.skus for convenience
+const E_LIST = Object.values(E.skus).sort((a,b)=>a.sku-b.sku);
 
-  document.getElementById("elastHeader").innerHTML =
-    `<h2>${r.label}</h2>
-     <p>Category: ${r.category} · Colour: ${r.color} · Avg price: £${P0.toFixed(2)} · Avg sales: ${Q0.toFixed(0)} units/wk · Avg revenue: £${R0.toLocaleString("en-GB",{maximumFractionDigits:0})}/wk · Promo rate: ${r.promo_rate}%</p>`;
+function eClassify(e) {
+  return Math.abs(e)<1?'Inelastic':Math.abs(e)<2?'Moderately Elastic':'Highly Elastic';
+}
+function eScenario(P0,Q0,e,pct) {
+  const Pn=P0*(1+pct/100), Qn=Math.max(Q0*Math.pow(Pn/P0,e),0), R0=P0*Q0, Rn=Pn*Qn;
+  return {Pn,Qn,Rn,dDem:((Qn-Q0)/Q0)*100,dRev:((Rn-R0)/R0)*100};
+}
+function eFmtPct(v){return (v>0?'+':'')+v.toFixed(1)+'%';}
+function eFmtMoney(v){return '£'+v.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function ePctCls(v){return v>0?'pos':v<0?'neg':'';}
+
+// Populate all SKU dropdowns
+function ePopulateSelects() {
+  ['elastSkuSelect','skuSelectScenario'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    if(!sel) return;
+    E_LIST.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.sku; opt.textContent = d.label;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+// Sub-tab switching
+let elastSubRendered = {overview:false, skuDive:false, scenarios:false, portfolio:false};
+
+function switchElastSub(sub) {
+  document.querySelectorAll('.elast-sub').forEach(p=>p.style.display='none');
+  document.querySelectorAll('[id^="esub-"]').forEach(b=>b.classList.remove('active'));
+  document.getElementById('elast-'+sub).style.display='block';
+  document.getElementById('esub-'+sub).classList.add('active');
+
+  if(!elastSubRendered[sub]) {
+    elastSubRendered[sub] = true;
+    if(sub==='overview') renderElastOverview();
+    if(sub==='skuDive') renderSKUDive();
+    if(sub==='scenarios') renderScenarioTab();
+    if(sub==='portfolio') renderPortfolioAnalysis();
+  }
+  setTimeout(()=>{
+    document.querySelectorAll('#elast-'+sub+' .js-plotly-plot').forEach(el=>Plotly.Plots.resize(el));
+  },50);
+}
+
+/* ═══════════════════ OVERVIEW TAB ═══════════════════ */
+function renderElastOverview() {
+  const meanE = E_LIST.reduce((s,d)=>s+d.elasticity,0)/E_LIST.length;
+  const mostEl = E_LIST.reduce((a,b)=>a.elasticity<b.elasticity?a:b);
+  const leastEl = E_LIST.reduce((a,b)=>Math.abs(a.elasticity)<Math.abs(b.elasticity)?a:b);
+  const nSig = E_LIST.filter(d=>d.elast_sig).length;
+
+  document.getElementById('overviewKpis').innerHTML=[
+    kpi('Total SKUs',''+E_LIST.length,''),
+    kpi('Mean Elasticity',meanE.toFixed(3),''),
+    kpi('Most Elastic',`SKU ${mostEl.sku}`,`ε = ${mostEl.elasticity.toFixed(3)}`),
+    kpi('Least Elastic',`SKU ${leastEl.sku}`,`ε = ${leastEl.elasticity.toFixed(3)}`),
+    kpi('Significant (p<0.05)',`${nSig} / ${E_LIST.length}`,''),
+  ].join('');
+
+  // Bar chart with CIs
+  const sorted=[...E_LIST].sort((a,b)=>a.elasticity-b.elasticity);
+  Plotly.newPlot('overviewBarChart',[{
+    type:'bar',orientation:'h',
+    y:sorted.map(d=>'SKU '+d.sku),x:sorted.map(d=>d.elasticity),
+    marker:{color:sorted.map(d=>d.elast_sig?E_CAT_COLORS[eClassify(d.elasticity)]:'#cbd5e1')},
+    hovertemplate:'<b>SKU %{y}</b><br>ε = %{x:.3f}<br>p = %{customdata[0]:.4f} | R² = %{customdata[1]:.3f}<extra></extra>',
+    customdata:sorted.map(d=>[d.elast_pval,d.r2]),
+  }],{
+    height:900,margin:{l:70,r:30,t:30,b:40},
+    xaxis:{title:'Price Elasticity',zeroline:true,zerolinecolor:'black'},
+    shapes:[
+      {type:'line',x0:-1,x1:-1,y0:0,y1:1,yref:'paper',line:{dash:'dash',color:'gray',width:1}},
+      {type:'line',x0:-2,x1:-2,y0:0,y1:1,yref:'paper',line:{dash:'dot',color:'gray',width:1}}
+    ],
+    annotations:[
+      {x:-1,y:1,yref:'paper',text:'|ε|=1',showarrow:false,yanchor:'bottom',font:{size:10,color:'gray'}},
+      {x:-2,y:1,yref:'paper',text:'|ε|=2',showarrow:false,yanchor:'bottom',font:{size:10,color:'gray'}}
+    ]
+  },plotCfg);
+
+  // Pie chart
+  const cats={};
+  E_LIST.forEach(d=>{const c=eClassify(d.elasticity);cats[c]=(cats[c]||0)+1;});
+  Plotly.newPlot('overviewPie',[{
+    type:'pie',labels:Object.keys(cats),values:Object.values(cats),
+    marker:{colors:Object.keys(cats).map(c=>E_CAT_COLORS[c])},
+    textinfo:'label+value+percent',hole:0.35
+  }],{height:350,margin:{t:20,b:20}},plotCfg);
+
+  // Histogram
+  Plotly.newPlot('overviewHist',[{
+    type:'histogram',x:E_LIST.map(d=>d.elasticity),nbinsx:20,
+    marker:{color:BLUE,opacity:0.7}
+  }],{
+    height:350,margin:{t:20,b:40},xaxis:{title:'Price Elasticity'},
+    shapes:[
+      {type:'line',x0:-1,x1:-1,y0:0,y1:1,yref:'paper',line:{dash:'dash',color:'gray'}},
+      {type:'line',x0:-2,x1:-2,y0:0,y1:1,yref:'paper',line:{dash:'dot',color:'gray'}}
+    ]
+  },plotCfg);
+
+  // Results table
+  let html='<table><tr><th>SKU</th><th>Product</th><th>Elasticity</th><th>P-value</th><th>R²</th><th>Avg Price</th><th>Category</th><th>Sig.</th></tr>';
+  E_LIST.forEach(d=>{
+    const pFmt = d.elast_pval<0.001 ? d.elast_pval.toExponential(2) : d.elast_pval.toFixed(4);
+    html+=`<tr><td>${d.sku}</td><td class="label-col">${d.label.split('—')[1]?.trim()||''}</td><td class="${d.elasticity<-1?'neg':''}">${d.elasticity.toFixed(3)}</td><td>${pFmt}</td><td>${d.r2.toFixed(3)}</td><td>£${d.avg_price.toFixed(2)}</td><td>${eClassify(d.elasticity)}</td><td class="${d.elast_sig?'sig':''}">${d.elast_sig?'★':''}</td></tr>`;
+  });
+  document.getElementById('overviewTable').innerHTML=html+'</table>';
+}
+
+/* ═══════════════════ SKU DEEP DIVE TAB ═══════════════════ */
+function renderSKUDive() {
+  const sel=document.getElementById('elastSkuSelect');
+  const id=sel.value;
+  const r=E.skus[id];
+  if(!r) return;
+  const e=r.elasticity, P0=r.avg_price, Q0=r.avg_sales, R0=r.avg_revenue;
+
+  document.getElementById('diveHeader').innerHTML=
+    `<h2>${r.label}</h2><p>Category: ${r.category} · Avg price: £${P0.toFixed(2)} · Avg sales: ${Q0.toFixed(0)} units/wk · Promo rate: ${r.promo_rate}%</p>`;
 
   let interp;
-  if(e<-1) interp=`Elastic — |ε| = ${Math.abs(e).toFixed(2)} > 1. Demand is price-sensitive. A 10% price rise causes ~${(Math.abs(e)*10).toFixed(0)}% demand fall. <b>Lowering price is likely to grow revenue.</b>`;
-  else if(e<0) interp=`Inelastic — |ε| = ${Math.abs(e).toFixed(2)} < 1. Demand is price-insensitive. A 10% price rise causes only ~${(Math.abs(e)*10).toFixed(0)}% demand fall. <b>Raising price is likely to grow revenue.</b>`;
-  else interp=`Unusual positive elasticity (ε = ${e.toFixed(2)}). Check model significance (p = ${r.elast_pval.toFixed(4)}).`;
-  const box=document.getElementById("elastInterpBox");
-  box.innerHTML=interp; box.style.display="block";
+  if(e<-1) interp=`Elastic — |ε|=${Math.abs(e).toFixed(2)}>1. A 10% price rise → ~${(Math.abs(e)*10).toFixed(0)}% demand fall. <b>Lowering price grows revenue.</b>`;
+  else if(e<0) interp=`Inelastic — |ε|=${Math.abs(e).toFixed(2)}<1. A 10% price rise → only ~${(Math.abs(e)*10).toFixed(0)}% demand fall. <b>Raising price grows revenue.</b>`;
+  else interp=`Unusual positive elasticity (ε=${e.toFixed(2)}). Check significance (p=${r.elast_pval.toFixed(4)}).`;
+  const box=document.getElementById('diveInterp');
+  box.innerHTML=interp;box.style.display='block';
 
-  const sigStr=r.elast_sig?"★ significant":"not significant";
-  document.getElementById("elastKpiRow").innerHTML=[
-    kpi("Price elasticity",e.toFixed(4),`p = ${r.elast_pval.toFixed(4)} · ${sigStr}`),
-    kpi("Model R²",r.r2.toFixed(4),"Scan*Pro goodness of fit"),
-    kpi("Avg price",`£${P0.toFixed(2)}`,`Avg sales: ${Q0.toFixed(0)} units/wk`),
-    kpi("Avg revenue",`£${R0.toLocaleString("en-GB",{maximumFractionDigits:0})}`,"per week at current price"),
-    kpi("Revenue-max price",`£${r.optimal_price.toFixed(2)}`,`Peak £${r.optimal_revenue.toLocaleString("en-GB",{maximumFractionDigits:0})}/wk`),
-  ].join("");
+  document.getElementById('diveKpis').innerHTML=[
+    kpi('Elasticity',e.toFixed(4),`p=${r.elast_pval.toFixed(4)} · ${r.elast_sig?'★ sig':'not sig'}`),
+    kpi('Model R²',r.r2.toFixed(4),'Scan*Pro fit'),
+    kpi('Avg Price',`£${P0.toFixed(2)}`,`Sales: ${Q0.toFixed(0)}/wk`),
+    kpi('Optimal Price',`£${r.optimal_price.toFixed(2)}`,`Peak £${r.optimal_revenue.toLocaleString('en-GB',{maximumFractionDigits:0})}/wk`),
+  ].join('');
 
-  /* Demand curve */
-  Plotly.newPlot("demandCurveChart",[
-    {x:r.price_range,y:r.demand_curve,mode:"lines",line:{color:BLUE,width:2},name:"Demand",
-     hovertemplate:"Price: £%{x:.2f}<br>Demand: %{y:.0f} units<extra></extra>"},
-    {x:[P0],y:[Q0],mode:"markers",marker:{size:11,color:SLATE,line:{color:"white",width:2}},
-     name:"Current price",hovertemplate:`Current: £${P0.toFixed(2)} → ${Q0.toFixed(0)} units<extra></extra>`},
-  ],{
-    title:{text:`Demand Curve  (ε = ${e.toFixed(3)})`,font:{size:13,color:SLATE}},
-    xaxis:{title:"Price (£)",tickfont:{color:GREY_MD}},yaxis:{title:"Weekly demand (units)",tickfont:{color:GREY_MD}},
-    legend:{orientation:"h",y:-0.22},plot_bgcolor:"white",paper_bgcolor:"white",
-    margin:{t:50,b:50,l:60,r:20},height:340,
+  // Demand curve
+  Plotly.newPlot('diveDemandCurve',[
+    {x:r.price_range,y:r.demand_curve,mode:'lines',line:{color:BLUE,width:2},hovertemplate:'Price: £%{x:.2f}<br>Demand: %{y:.0f}<extra></extra>'},
+    {x:[P0],y:[Q0],mode:'markers',marker:{size:11,color:SLATE,line:{color:'white',width:2}},hovertemplate:`Current: £${P0.toFixed(2)} → ${Q0.toFixed(0)}<extra></extra>`}
+  ],{height:360,margin:{t:30,b:40,l:60,r:20},title:`Demand Curve (ε=${e.toFixed(3)})`,xaxis:{title:'Price (£)'},yaxis:{title:'Weekly demand'}},plotCfg);
+
+  // Revenue curve
+  Plotly.newPlot('diveRevenueCurve',[
+    {x:r.price_range,y:r.revenue_curve,mode:'lines',line:{color:GREY_LG,width:2},hovertemplate:'Price: £%{x:.2f}<br>Revenue: £%{y:,.0f}<extra></extra>'},
+    {x:[P0],y:[R0],mode:'markers',marker:{size:11,color:SLATE,line:{color:'white',width:2}},hovertemplate:`Current: £${P0.toFixed(2)} → £${R0.toLocaleString()}<extra></extra>`},
+    {x:[r.optimal_price],y:[r.optimal_revenue],mode:'markers',marker:{size:14,color:BLUE,symbol:'star',line:{color:'white',width:1.5}},hovertemplate:`Optimal: £${r.optimal_price.toFixed(2)} → £${r.optimal_revenue.toLocaleString()}<extra></extra>`}
+  ],{height:360,margin:{t:30,b:40,l:60,r:20},title:`Revenue Curve — Optimal: £${r.optimal_price.toFixed(2)}`,xaxis:{title:'Price (£)'},yaxis:{title:'Weekly revenue (£)'}},plotCfg);
+
+  // Waterfall
+  const sc=r.scenarios;
+  Plotly.newPlot('diveWaterfall',[{
+    x:sc.map(s=>s.label),y:sc.map(s=>s.d_rev),type:'bar',
+    marker:{color:sc.map(s=>s.d_rev>=0?GREEN:RED)},
+    text:sc.map(s=>`£${s.d_rev>=0?'+':''}${s.d_rev.toFixed(0)}`),textposition:'outside',textfont:{size:10,color:GREY_MD},
+  }],{height:340,margin:{t:30,b:40,l:60,r:40},title:`Revenue Impact (ε=${e.toFixed(3)})`,
+    xaxis:{title:'Price change'},yaxis:{title:'Δ Revenue (£/wk)'},
+    shapes:[{type:'line',x0:sc[0].label,x1:sc[sc.length-1].label,y0:0,y1:0,line:{color:GREY_LG}}]
   },plotCfg);
 
-  /* Revenue curve */
-  Plotly.newPlot("revenueCurveChart",[
-    {x:r.price_range,y:r.revenue_curve,mode:"lines",line:{color:GREY_LG,width:2},name:"Revenue",
-     hovertemplate:"Price: £%{x:.2f}<br>Revenue: £%{y:,.0f}<extra></extra>"},
-    {x:[P0],y:[R0],mode:"markers",marker:{size:11,color:SLATE,line:{color:"white",width:2}},name:"Current"},
-    {x:[r.optimal_price],y:[r.optimal_revenue],mode:"markers",
-     marker:{size:14,color:BLUE,symbol:"star",line:{color:"white",width:1.5}},
-     name:`Optimal £${r.optimal_price.toFixed(2)}`},
-  ],{
-    title:{text:`Revenue Curve — Optimal: £${r.optimal_price.toFixed(2)}`,font:{size:13,color:SLATE}},
-    xaxis:{title:"Price (£)",tickfont:{color:GREY_MD}},yaxis:{title:"Weekly revenue (£)",tickfont:{color:GREY_MD}},
-    legend:{orientation:"h",y:-0.22},plot_bgcolor:"white",paper_bgcolor:"white",
-    margin:{t:50,b:50,l:60,r:20},height:340,
-  },plotCfg);
-
-  /* Scan*Pro fit */
-  Plotly.newPlot("fitChart",[
-    {x:r.weeks,y:r.actual,mode:"lines",name:"Actual sales",line:{color:SLATE,width:1.8}},
-    {x:r.weeks,y:r.fitted,mode:"lines",name:"Scan*Pro fitted",line:{color:BLUE,width:1.5,dash:"dash"}},
-  ],{
-    title:{text:`Scan*Pro Model Fit  (R² = ${r.r2.toFixed(3)})`,font:{size:13,color:SLATE}},
-    xaxis:{title:"Week",type:"date",tickformat:"%b %Y",tickfont:{color:GREY_MD}},
-    yaxis:{title:"Weekly sales (units)",tickfont:{color:GREY_MD}},
-    legend:{orientation:"h",y:-0.2},plot_bgcolor:"white",paper_bgcolor:"white",
-    height:320,margin:{t:50,b:60,l:60,r:20},
-  },plotCfg);
-
-  /* Waterfall */
-  const sc=r.scenarios; const yVals=sc.map(s=>s.d_rev);
-  Plotly.newPlot("waterfallChart",[{type:"bar",x:sc.map(s=>s.label),y:yVals,
-    marker:{color:yVals.map(v=>v<0?RED:GREEN),line:{width:0}},
-    text:yVals.map(v=>`£${v>=0?"+":""}${v.toLocaleString("en-GB",{maximumFractionDigits:0})}`),
-    textposition:"outside",textfont:{size:10,color:GREY_MD},
-    customdata:sc.map(s=>[s.new_price,s.d_demand_pct,s.new_rev,s.d_rev_pct]),
-    hovertemplate:"<b>%{x}</b><br>New price: £%{customdata[0]:.2f}<br>Δ Demand: %{customdata[1]:+.1f}%<br>New revenue: £%{customdata[2]:,.0f}<br>Δ Revenue: %{customdata[3]:+.1f}%<extra></extra>",
-  }],{
-    title:{text:`Revenue Change by Price Scenario  (ε = ${e.toFixed(3)})`,font:{size:13,color:SLATE}},
-    xaxis:{title:"Price scenario",tickfont:{color:GREY_MD}},
-    yaxis:{title:"Δ Revenue vs baseline (£/week)",tickfont:{color:GREY_MD}},
-    shapes:[{type:"line",x0:0,x1:1,y0:0,y1:0,xref:"paper",yref:"y",line:{color:GREY_LG,width:1}}],
-    plot_bgcolor:"white",paper_bgcolor:"white",height:400,margin:{t:70,b:50,l:60,r:20},
-  },plotCfg);
-
-  /* Scenario table */
-  let stHtml=`<table><tr><th>Scenario</th><th>New Price</th><th>Δ Demand (units)</th><th>Δ Demand (%)</th><th>New Revenue</th><th>Δ Revenue (£)</th><th>Δ Revenue (%)</th></tr>`;
+  // Scenario table
+  let tbl='<table><tr><th>Scenario</th><th>New Price</th><th>Δ Demand</th><th>Δ Demand %</th><th>New Revenue</th><th>Δ Revenue</th><th>Δ Revenue %</th></tr>';
   sc.forEach(s=>{
-    const rowCls=s.pct>0?"row-dn":"row-up";
-    const dc=s.d_demand>=0?"pos":"neg"; const rc=s.d_rev>=0?"pos":"neg";
-    stHtml+=`<tr class="${rowCls}"><td><b>${s.label}</b></td><td>£${s.new_price.toFixed(2)}</td>
-      <td class="${dc}">${s.d_demand>=0?"+":""}${s.d_demand}</td>
-      <td class="${dc}">${s.d_demand_pct>=0?"+":""}${s.d_demand_pct}%</td>
-      <td>£${s.new_rev.toLocaleString("en-GB",{maximumFractionDigits:0})}</td>
-      <td class="${rc}">${s.d_rev>=0?"£+":"£"}${s.d_rev.toLocaleString("en-GB",{maximumFractionDigits:0})}</td>
-      <td class="${rc}">${s.d_rev_pct>=0?"+":""}${s.d_rev_pct}%</td></tr>`;
+    const dCls=s.d_rev>=0?'pos':'neg';
+    tbl+=`<tr><td><b>${s.label}</b></td><td>£${s.new_price.toFixed(2)}</td><td class="${s.d_demand>=0?'pos':'neg'}">${s.d_demand>=0?'+':''}${s.d_demand.toFixed(1)}</td><td class="${s.d_demand_pct>=0?'pos':'neg'}">${s.d_demand_pct>=0?'+':''}${s.d_demand_pct.toFixed(1)}%</td><td>£${s.new_rev.toFixed(0)}</td><td class="${dCls}">${s.d_rev>=0?'+':''}£${s.d_rev.toFixed(0)}</td><td class="${dCls}">${s.d_rev_pct>=0?'+':''}${s.d_rev_pct.toFixed(1)}%</td></tr>`;
   });
-  stHtml+="</table>";
-  document.getElementById("scenarioTable").innerHTML=stHtml;
+  document.getElementById('diveScenarioTable').innerHTML=tbl+'</table>';
 }
 
-/** Render portfolio-level elasticity KPI cards (all-SKU summary). */
-function renderPortfolioKpis() {
-  const p=ELAST_DATA.portfolio;
-  document.getElementById("portfolioKpis").innerHTML=[
-    kpi("SKUs analysed",p.n_skus,"with sufficient data"),
-    kpi("Elastic |ε|>1",`${p.n_elastic} / ${p.n_skus}`,"price-sensitive demand"),
-    kpi("Inelastic |ε|<1",`${p.n_inelastic} / ${p.n_skus}`,"price-insensitive demand"),
-    kpi("Significant p<0.05",`${p.n_sig} / ${p.n_skus}`,"statistically reliable ε"),
-    kpi("Avg elasticity",p.avg_elast,"across all SKUs"),
-    kpi("Most sensitive",`SKU ${p.most_sens.sku}`,`ε = ${p.most_sens.elasticity.toFixed(3)}`),
-    kpi("Least sensitive",`SKU ${p.least_sens.sku}`,`ε = ${p.least_sens.elasticity.toFixed(3)}`),
-  ].join("");
-}
+/* ═══════════════════ SCENARIO TESTING TAB ═══════════════════ */
+function renderScenarioTab() {
+  const sel=document.getElementById('skuSelectScenario');
+  const id=+sel.value;
+  const d=E.skus[id];
+  if(!d) return;
+  const P0=d.avg_price,Q0=d.avg_sales,e=d.elasticity;
 
-/** Render horizontal bar chart ranking all SKUs by price elasticity. */
-function renderRanking() {
-  const rows=Object.values(ELAST_DATA.skus).sort((a,b)=>a.elasticity-b.elasticity);
-  const yLbls=rows.map(r=>r.label.replace("SKU ","")+( r.elast_sig?" ★":""));
-  const xVals=rows.map(r=>r.elasticity);
-  const cols=rows.map(r=>r.elast_sig?BLUE:GREY_MD);
-  Plotly.newPlot("rankingChart",[{type:"bar",orientation:"h",y:yLbls,x:xVals,marker:{color:cols},
-    text:xVals.map(v=>v.toFixed(2)),textposition:"outside",textfont:{size:9,color:GREY_MD},
-    customdata:rows.map(r=>[r.elast_pval,r.avg_price,r.avg_sales,r.r2,r.elast_sig?"Yes":"No"]),
-    hovertemplate:"<b>%{y}</b><br>ε = <b>%{x:.4f}</b><br>p-value: %{customdata[0]:.4f}  Sig: %{customdata[4]}<br>Avg price: £%{customdata[1]:.2f}  Avg sales: %{customdata[2]:.0f}/wk<br>R²: %{customdata[3]:.3f}<extra></extra>",
-  }],{
-    height:1000,margin:{l:200,r:80,t:30,b:30},
-    xaxis:{title:"Price Elasticity (ε)",zeroline:true,zerolinecolor:GREY_LG,zerolinewidth:1,tickfont:{color:GREY_MD}},
-    yaxis:{tickfont:{size:9,color:SLATE}},showlegend:false,plot_bgcolor:"white",paper_bgcolor:"white",
-    shapes:[{type:"line",x0:-1,x1:-1,y0:0,y1:1,xref:"x",yref:"paper",line:{dash:"dash",color:GREY_MD,width:1.2}}],
-    annotations:[
-      {x:-1,y:1,xref:"x",yref:"paper",text:"Unit elastic ε=−1",showarrow:false,font:{color:GREY_MD,size:10},yanchor:"bottom",xanchor:"left"},
-      {x:.99,y:.01,xref:"paper",yref:"paper",text:"★ = significant (p<0.05)  ·  Blue = significant  ·  Grey = not significant",showarrow:false,font:{color:GREY_MD,size:9},bgcolor:"white",align:"right"},
-    ],
-  },plotCfg);
-}
+  document.getElementById('scenarioInfo').innerHTML=
+    `<div class="kpi-row">${[
+      kpi('SKU',`${d.sku}`,''),
+      kpi('Elasticity',e.toFixed(3),eClassify(e)),
+      kpi('Avg Price',eFmtMoney(P0),''),
+      kpi('Avg Demand',Q0.toFixed(0)+' /wk',''),
+    ].join('')}</div>`;
 
-/** Render revenue-impact heatmap (all SKUs × all price-change scenarios). */
-function renderElastHeatmap() {
-  const hm=ELAST_DATA.heatmap;
-  Plotly.newPlot("elastHeatmapChart",[{type:"heatmap",z:hm.z,x:hm.scenario_labels,y:hm.sku_labels,
-    text:hm.text,texttemplate:"%{text}",textfont:{size:8,color:"#334155"},
-    colorscale:[[0,RED],[0.4,"#FCA5A5"],[0.5,"#F8FAFC"],[0.6,"#86EFAC"],[1,GREEN]],zmid:0,
-    colorbar:{title:"ΔRevenue (%)",ticksuffix:"%",len:.7,tickfont:{size:10}},
-    hovertemplate:"<b>%{y}</b><br>Scenario: %{x}<br>Revenue change: <b>%{z:+.1f}%</b><extra></extra>",
-  }],{
-    height:1050,margin:{l:200,r:110,t:30,b:60},
-    xaxis:{title:"Price Change Scenario",side:"top",tickfont:{size:11}},
-    yaxis:{tickfont:{size:9},autorange:"reversed"},paper_bgcolor:"white",
-  },plotCfg);
-}
-
-/** Render all-SKU pricing strategy summary table with gradient effectiveness column. */
-function renderStrategyTable() {
-  const rows=Object.values(ELAST_DATA.skus).sort((a,b)=>a.elasticity-b.elasticity);
-  const n=rows.length;
-  let html=`<table><tr><th>SKU</th><th>Product</th><th>Elasticity</th><th>Sig.</th><th>Avg Price</th><th>ΔRev +10%</th><th>ΔRev −10%</th><th>Optimal Price</th><th>Strategy</th></tr>`;
-  rows.forEach((r,i)=>{
-    const e=r.elasticity,P0=r.avg_price,Q0=r.avg_sales,R0=r.avg_revenue;
-    const Pup=P0*1.10,Pdn=P0*0.90;
-    const Rup=Pup*Math.max(Q0*Math.pow(Pup/P0,e),0);
-    const Rdn=Pdn*Math.max(Q0*Math.pow(Pdn/P0,e),0);
-    const dUp=R0>0?((Rup-R0)/R0*100).toFixed(1):"0.0";
-    const dDn=R0>0?((Rdn-R0)/R0*100).toFixed(1):"0.0";
-    const strat=e<-1?"Consider lower price":e<0?"Consider higher price":"Review data";
-    const eCol=r.elast_sig?"sig":"";
-    const t=n>1?i/(n-1):0;
-    const sR=Math.round(220-220*t), sG=Math.round(232-232*t), sB=Math.round(255-50*t);
-    const sTxt=t>0.55?"white":"#1e293b";
-    html+=`<tr><td class="label-col"><b>SKU ${r.sku}</b></td>
-      <td class="label-col" style="font-size:.78rem">${r.label.split("—")[1]?.trim()||""}</td>
-      <td class="${eCol}">${e.toFixed(4)}</td><td>${r.elast_sig?"★":""}</td>
-      <td>£${P0.toFixed(2)}</td>
-      <td class="${parseFloat(dUp)>=0?'pos':'neg'}">${parseFloat(dUp)>=0?'+':''}${dUp}%</td>
-      <td class="${parseFloat(dDn)>=0?'pos':'neg'}">${parseFloat(dDn)>=0?'+':''}${dDn}%</td>
-      <td>£${r.optimal_price.toFixed(2)}</td>
-      <td class="label-col" style="font-size:.78rem;background:rgb(${sR},${sG},${sB});color:${sTxt};font-weight:600">${strat}</td></tr>`;
+  // Standard scenarios table
+  let tbl='<table><tr><th>Scenario</th><th>New Price</th><th>New Demand</th><th>Demand Δ</th><th>New Revenue</th><th>Revenue Δ</th></tr>';
+  const rows=ELAST_SCENARIOS.map(pct=>{
+    const r=eScenario(P0,Q0,e,pct);
+    return {pct,...r};
   });
-  html+="</table>";
-  document.getElementById("strategyTable").innerHTML=html;
+  rows.forEach(r=>{
+    tbl+=`<tr><td><b>${r.pct>0?'+':''}${r.pct}%</b></td><td>${eFmtMoney(r.Pn)}</td><td>${Math.round(r.Qn)}</td><td class="${ePctCls(r.dDem)}">${eFmtPct(r.dDem)}</td><td>${eFmtMoney(r.Rn)}</td><td class="${ePctCls(r.dRev)}">${eFmtPct(r.dRev)}</td></tr>`;
+  });
+  document.getElementById('scenarioStdTable').innerHTML=tbl+'</table>';
+
+  // Demand bar
+  Plotly.newPlot('scenarioDemandBar',[{
+    x:rows.map(r=>(r.pct>0?'+':'')+r.pct+'%'),y:rows.map(r=>r.dDem),type:'bar',
+    marker:{color:rows.map(r=>r.dDem>0?GREEN:RED)},
+    text:rows.map(r=>eFmtPct(r.dDem)),textposition:'outside',textfont:{size:9}
+  }],{height:320,margin:{t:30,b:40},title:'Demand Change (%)',yaxis:{title:'%'}},plotCfg);
+
+  // Revenue bar
+  Plotly.newPlot('scenarioRevenueBar',[{
+    x:rows.map(r=>(r.pct>0?'+':'')+r.pct+'%'),y:rows.map(r=>r.dRev),type:'bar',
+    marker:{color:rows.map(r=>r.dRev>0?GREEN:RED)},
+    text:rows.map(r=>eFmtPct(r.dRev)),textposition:'outside',textfont:{size:9}
+  }],{height:320,margin:{t:30,b:40},title:'Revenue Change (%)',yaxis:{title:'%'}},plotCfg);
+
+  // Reset custom slider
+  document.getElementById('customSlider').value=0;
+  document.getElementById('sliderLabel').textContent='0%';
+  document.getElementById('customResult').innerHTML='<div class="interp">Move the slider to simulate a custom price change.</div>';
 }
 
+function updateCustomScenario() {
+  const pct=+document.getElementById('customSlider').value;
+  document.getElementById('sliderLabel').textContent=(pct>0?'+':'')+pct+'%';
+  if(pct===0){document.getElementById('customResult').innerHTML='<div class="interp">Move the slider to simulate a custom price change.</div>';return;}
+  const id=+document.getElementById('skuSelectScenario').value;
+  const d=E.skus[id];
+  const r=eScenario(d.avg_price,d.avg_sales,d.elasticity,pct);
+  document.getElementById('customResult').innerHTML=`
+    <div class="kpi-row">
+      ${kpi('New Price',eFmtMoney(r.Pn),eFmtPct(pct)+' from '+eFmtMoney(d.avg_price))}
+      ${kpi('New Demand',Math.round(r.Qn)+'',`<span class="${ePctCls(r.dDem)}">${eFmtPct(r.dDem)}</span>`)}
+      ${kpi('New Revenue',eFmtMoney(r.Rn),`<span class="${ePctCls(r.dRev)}">${eFmtPct(r.dRev)}</span>`)}
+    </div>
+    <div class="interp">A <b>${pct>0?'+':''}${pct}%</b> price change would ${r.dDem<0?'decrease':'increase'} demand by <b>${Math.abs(r.dDem).toFixed(1)}%</b> and ${r.dRev<0?'decrease':'increase'} revenue by <b>${Math.abs(r.dRev).toFixed(1)}%</b>.</div>`;
+}
 
+/* ═══════════════════ PORTFOLIO ANALYSIS TAB ═══════════════════ */
+function renderPortfolioAnalysis() {
+  const cats={};
+  E_LIST.forEach(d=>{const c=eClassify(d.elasticity);cats[c]=(cats[c]||0)+1;});
+
+  // +10% impact
+  const res10=E_LIST.map(d=>({...d,...eScenario(d.avg_price,d.avg_sales,d.elasticity,10)}));
+  const raiseCount=res10.filter(r=>r.dRev>0).length;
+
+  document.getElementById('portfolioKpis').innerHTML=[
+    kpi('Total SKUs',''+E_LIST.length,''),
+    kpi('Inelastic',''+(cats['Inelastic']||0),'|ε| < 1'),
+    kpi('Moderate',''+(cats['Moderately Elastic']||0),'1 ≤ |ε| < 2'),
+    kpi('Highly Elastic',''+(cats['Highly Elastic']||0),'|ε| ≥ 2'),
+    kpi('+10% Rev Gainers',`${raiseCount} / ${E_LIST.length}`,'inelastic — can raise price'),
+  ].join('');
+
+  // Category box plot
+  const funcGroups={};
+  E_LIST.forEach(d=>{
+    const fname=d.category||d.label.split('—')[1]?.trim()||'Unknown';
+    if(!funcGroups[fname]) funcGroups[fname]=[];
+    funcGroups[fname].push(d.elasticity);
+  });
+  const funcNames=Object.keys(funcGroups).sort((a,b)=>{
+    const ma=funcGroups[a].reduce((s,v)=>s+v,0)/funcGroups[a].length;
+    const mb=funcGroups[b].reduce((s,v)=>s+v,0)/funcGroups[b].length;
+    return ma-mb;
+  });
+  Plotly.newPlot('portfolioByFunc',funcNames.map(name=>({
+    type:'box',y:funcGroups[name],name:name,boxpoints:'all',jitter:0.4,pointpos:0,
+    marker:{size:5,opacity:0.6},
+    hovertemplate:'<b>%{x}</b><br>ε = %{y:.3f}<extra></extra>'
+  })),{
+    height:400,margin:{t:20,b:80,l:60,r:20},
+    yaxis:{title:'Price Elasticity (ε)',zeroline:true,zerolinecolor:'black'},
+    xaxis:{tickangle:-30},showlegend:false,
+    shapes:[
+      {type:'line',x0:0,x1:1,xref:'paper',y0:-1,y1:-1,line:{dash:'dash',color:'gray',width:1}},
+      {type:'line',x0:0,x1:1,xref:'paper',y0:-2,y1:-2,line:{dash:'dot',color:'gray',width:1}}
+    ]
+  },plotCfg);
+
+  // Ranking with CIs
+  const sorted=[...E_LIST].sort((a,b)=>a.elasticity-b.elasticity);
+  Plotly.newPlot('rankingChart',[{
+    type:'bar',orientation:'h',
+    y:sorted.map(d=>'SKU '+d.sku+' — '+d.label.split('—')[1]?.trim().substring(0,30)+(d.elast_sig?' ★':'')),
+    x:sorted.map(d=>d.elasticity),
+    marker:{color:sorted.map(d=>d.elast_sig?E_CAT_COLORS[eClassify(d.elasticity)]:'#cbd5e1')},
+    hovertemplate:'<b>%{y}</b><br>ε = %{x:.3f}<extra></extra>',
+  }],{
+    height:900,margin:{l:320,r:30,t:20,b:40},
+    xaxis:{title:'Price Elasticity (ε)',zeroline:true,zerolinecolor:'black'},
+    yaxis:{tickfont:{size:10},automargin:true},
+    shapes:[{type:'line',x0:-1,x1:-1,y0:0,y1:1,yref:'paper',line:{dash:'dash',color:'gray'}}],
+    annotations:[{x:0.99,y:0.01,xref:'paper',yref:'paper',text:'★ = significant (p<0.05)',
+      showarrow:false,font:{size:9,color:'#94a3b8'},bgcolor:'white'}]
+  },plotCfg);
+
+  // Heatmap
+  const hm=E.heatmap;
+  Plotly.newPlot('elastHeatmapChart',[{
+    type:'heatmap',z:hm.z,x:hm.scenario_labels,y:hm.sku_labels,
+    text:hm.text,texttemplate:'%{text}',textfont:{size:8,color:'#334155'},
+    colorscale:[[0,'#DC2626'],[0.4,'#FCA5A5'],[0.5,'#F8FAFC'],[0.6,'#86EFAC'],[1,'#16a34a']],
+    zmid:0,colorbar:{title:'ΔRev (%)',ticksuffix:'%',len:0.7},
+    hovertemplate:'<b>%{y}</b><br>Scenario: %{x}<br>Revenue: <b>%{z:+.1f}%</b><extra></extra>'
+  }],{
+    height:1000,margin:{l:220,r:110,t:40,b:40},
+    xaxis:{title:'Price Change',side:'top'},
+    yaxis:{tickfont:{size:9},autorange:'reversed',automargin:true}
+  },plotCfg);
+
+  // Strategy table
+  const strats=E_LIST.map(d=>{
+    const up=eScenario(d.avg_price,d.avg_sales,d.elasticity,10);
+    const dn=eScenario(d.avg_price,d.avg_sales,d.elasticity,-10);
+    let strategy=up.dRev>0?'Raise Price':dn.dRev>up.dRev?'Lower Price':'Maintain';
+    return {...d,up,dn,strategy};
+  }).sort((a,b)=>b.up.dRev-a.up.dRev);
+
+  let tbl='<table><tr><th>SKU</th><th>Product</th><th>Elasticity</th><th>Category</th><th>+10% Rev</th><th>-10% Rev</th><th>Strategy</th></tr>';
+  strats.forEach(s=>{
+    tbl+=`<tr><td>${s.sku}</td><td class="label-col">${s.label.split('—')[1]?.trim()||''}</td><td>${s.elasticity.toFixed(3)}</td><td>${eClassify(s.elasticity)}</td><td class="${ePctCls(s.up.dRev)}">${eFmtPct(s.up.dRev)}</td><td class="${ePctCls(s.dn.dRev)}">${eFmtPct(s.dn.dRev)}</td><td><b>${s.strategy}</b></td></tr>`;
+  });
+  document.getElementById('strategyTable').innerHTML=tbl+'</table>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROMOTION EFFECTIVENESS
+   ═══════════════════════════════════════════════════════════════════════════ */
 /* ═══════════════════════════════════════════════════════════════════════════
    PROMOTION EFFECTIVENESS
    ═══════════════════════════════════════════════════════════════════════════ */
